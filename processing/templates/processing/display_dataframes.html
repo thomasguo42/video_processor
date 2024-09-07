@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Processed Data</title>
+    <style>
+        table, th, td {
+            border: 1px solid black;
+            border-collapse: collapse;
+            padding: 8px;
+        }
+
+        th {
+            background-color: #f2f2f2;
+        }
+    </style>
+</head>
+<body>
+    <h1>Original and Processed Data</h1>
+
+    <h2>Original Data</h2>
+
+    <h3>Left X Data</h3>
+    {{ left_xdata_html|safe }}
+
+    <h3>Left Y Data</h3>
+    {{ left_ydata_html|safe }}
+
+    <h3>Right X Data</h3>
+    {{ right_xdata_html|safe }}
+
+    <h3>Right Y Data</h3>
+    {{ right_ydata_html|safe }}
+
+    <h3>Video Angle</h3>
+    {{ video_angle_html|safe }}
+
+    <h2>Processed Data</h2>
+
+    <h3>Processed Left X Data</h3>
+    {{ left_xdata_new_html|safe }}
+
+    <h3>Processed Left Y Data</h3>
+    {{ left_ydata_new_html|safe }}
+
+    <h3>Processed Right X Data</h3>
+    {{ right_xdata_new_html|safe }}
+
+    <h3>Processed Right Y Data</h3>
+    {{ right_ydata_new_html|safe }}
+
+</body>
+</html>
