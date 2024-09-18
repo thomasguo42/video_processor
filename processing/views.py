@@ -192,10 +192,34 @@ def process_data(request, video_id, index1, index2):
         print("Video cut completed.")
 
         # Generate video with keypoints
-        print("Generating video with keypoints...")
-        video_with_keypoints_path = generate_video_with_keypoints_segment(source, tracked_indices, left_xdata_df, left_ydata_df, right_xdata_df, right_ydata_df, c, 'keypoints', video_id, latest_end, end_frame)
-        print("Generated video with keypoints.")
-        video_with_keypoints_url = os.path.join(settings.MEDIA_URL, 'keypoints', os.path.basename(video_with_keypoints_path))
+        #print("Generating video with keypoints...")
+        #video_with_keypoints_path = generate_video_with_keypoints_segment(source, tracked_indices, left_xdata_df, left_ydata_df, right_xdata_df, right_ydata_df, c, 'keypoints', video_id, latest_end, end_frame)
+        #print("Generated video with keypoints.")
+        #video_with_keypoints_url = os.path.join(settings.MEDIA_URL, 'keypoints', os.path.basename(video_with_keypoints_path))
+
+        # Call cut_video_segments to generate keypoint video with just one interval
+        keypoint_frame_interval = [(0, len(left_xdata_df) - 5)]
+
+        # Use the existing cut_video_segments function
+        keypoint_video_url = cut_video_segments(
+            source, 
+            keypoint_frame_interval, 
+            'keypoint_segments', 
+            video_id, 
+            left_xdata_df, 
+            left_ydata_df, 
+            right_xdata_df, 
+            right_ydata_df, 
+            c
+        )
+
+        all_segments_keypoint = []
+        # Append the keypoint video to all_segments with the label and start frame
+        all_segments_keypoint.append({
+            'url': keypoint_video_url[0],  # There will only be one video in this case
+            'label': '关键点视频',  # Label for keypoint video
+            'start_frame': latest_end  # Start frame can be latest_end
+        })
 
         # Determine winner
         print("Finding winner...")
@@ -246,7 +270,7 @@ def process_data(request, video_id, index1, index2):
                     'left_percentage': left_p,
                     'right_percentage': right_p,
                     'plot_urls': plot_urls,  # Case 1
-                    'video_with_keypoints_url': video_with_keypoints_url,  # Keypoint video
+                    'video_with_keypoints_url': all_segments_keypoint,  # Keypoint video
                     'all_segments_sorted': None,  # No segments for case 1
                 }
 
@@ -290,7 +314,7 @@ def process_data(request, video_id, index1, index2):
                     'left_percentage': left_p,
                     'right_percentage': right_p,
                     'plot_urls': None,  # Case 2 (no plots)
-                    'video_with_keypoints_url': video_with_keypoints_url,
+                    'video_with_keypoints_url': all_segments_keypoint,
                     #settings.MEDIA_URL + os.path.basename(video_with_keypoints_path),  # Keypoint video
                     'all_segments_sorted': all_segments_sorted,  # Sorted segments with labels
                 }
@@ -304,7 +328,6 @@ def process_data(request, video_id, index1, index2):
     except Exception as e:
         logger.error(f"Unexpected error: {e}")
         return render(request, 'processing/display_error.html', {'error_message': '很抱歉，视频无法处理'})
-
 
     #data = context
     #return JsonResponse(data)
