@@ -184,8 +184,9 @@ def process_data(request, video_id, index1, index2):
 
         # Generate video with keypoints
         print("Generating video with keypoints...")
-        video_with_keypoints_path = generate_video_with_keypoints(results, source, tracked_indices, left_xdata_df, left_ydata_df, right_xdata_df, right_ydata_df, c)
+        video_with_keypoints_path = generate_video_with_keypoints(results, source, tracked_indices, left_xdata_df, left_ydata_df, right_xdata_df, right_ydata_df, c, 'keypoints', video_id)
         print("Generated video with keypoints.")
+        video_with_keypoints_url = os.path.join(settings.MEDIA_URL, 'keypoints', os.path.basename(video_with_keypoints_path))
 
         # Cut video data
         print("Cutting video data...")
@@ -241,7 +242,7 @@ def process_data(request, video_id, index1, index2):
                     'left_percentage': left_p,
                     'right_percentage': right_p,
                     'plot_urls': plot_urls,  # Case 1
-                    'video_with_keypoints_url': settings.MEDIA_URL + os.path.basename(video_with_keypoints_path),  # Keypoint video
+                    'video_with_keypoints_url': video_with_keypoints_url,  # Keypoint video
                     'all_segments_sorted': None,  # No segments for case 1
                 }
 
@@ -285,7 +286,8 @@ def process_data(request, video_id, index1, index2):
                     'left_percentage': left_p,
                     'right_percentage': right_p,
                     'plot_urls': None,  # Case 2 (no plots)
-                    'video_with_keypoints_url': video_with_keypoints_path,
+                    'video_with_keypoints_url': video_with_keypoints_url,
+                    #settings.MEDIA_URL + os.path.basename(video_with_keypoints_path),  # Keypoint video
                     'all_segments_sorted': all_segments_sorted,  # Sorted segments with labels
                 }
 
