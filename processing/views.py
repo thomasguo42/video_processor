@@ -86,43 +86,46 @@ import numpy as np
 import os
 import matplotlib.font_manager as fm
 
-# 生成柱状图
+from matplotlib.font_manager import FontProperties
+
+
+# Function to generate bar chart with Chinese labels
 def plot_bar_chart(left_data, right_data, keypoint_labels, ylabel, title, save_path):
     """Helper function to plot a bar chart comparing left and right fencers with Chinese labels."""
-    bar_width = 0.35  # 柱状图宽度
-    index = np.arange(len(keypoint_labels))  # 柱状图标识
+    bar_width = 0.35  # Bar width for bar chart
+    index = np.arange(len(keypoint_labels))  # Indices for the bar chart
 
-    # 使用中文字体
-    plt.rcParams['font.sans-serif'] = ['Noto Serif CJK SC']  # Use Noto Sans CJK for Chinese characters
+    # Path to Noto Serif CJK SC font (adjust if necessary)
+    font_path = '/usr/share/fonts/opentype/noto/NotoSerifCJK-Regular.ttc'
+    font_prop = FontProperties(fname=font_path)
     
     plt.rcParams['axes.unicode_minus'] = False  # Ensure minus signs are displayed correctly
 
-
     plt.figure(figsize=(10, 6))
     
-    # 生成柱状图
-    plt.bar(index, left_data, bar_width, label='左方运动员')
-    plt.bar(index + bar_width, right_data, bar_width, label='右方运动员')
+    # Create the bar chart
+    plt.bar(index, left_data, bar_width, label='左方运动员', color='blue')
+    plt.bar(index + bar_width, right_data, bar_width, label='右方运动员', color='red')
 
-    # 加入中文标识
-    plt.xlabel('关节点', fontsize=12)
-    plt.ylabel(ylabel, fontsize=12)
-    plt.title(title, fontsize=16)
-    plt.xticks(index + bar_width / 2, keypoint_labels)  # Align labels between the bars
-    plt.legend()
+    # Add Chinese labels using the specified font
+    plt.xlabel('关节点', fontsize=12, fontproperties=font_prop)
+    plt.ylabel(ylabel, fontsize=12, fontproperties=font_prop)
+    plt.title(title, fontsize=16, fontproperties=font_prop)
+    plt.xticks(index + bar_width / 2, keypoint_labels, fontproperties=font_prop)  # Align labels between the bars
+    plt.legend(prop=font_prop)
 
-    # 保存
+    # Save the plot
     plt.tight_layout()
     plt.savefig(save_path)
     plt.close()
 
-# 生成柱状图2
+# Function to generate bar plots for velocity and acceleration comparison
 def generate_bar_plots_for_velocity_acceleration(left_xdata_new_df, right_xdata_new_df, keypoints=[8, 10, 14, 16]):
     """Generates and saves bar plots for comparing velocity and acceleration in Chinese."""
-    # 关节点标识
+    # Keypoint labels (in Chinese)
     keypoint_labels = ['手肘', '手', '前膝盖', '前脚']
     
-    # 计算速度和加速度
+    # Calculate velocities and accelerations
     left_velocities = []
     left_accelerations = []
     right_velocities = []
@@ -132,27 +135,25 @@ def generate_bar_plots_for_velocity_acceleration(left_xdata_new_df, right_xdata_
         left_velocity, left_acceleration = calculate_velocity_acceleration(left_xdata_new_df[keypoint])
         right_velocity, right_acceleration = calculate_velocity_acceleration(right_xdata_new_df[keypoint])
 
-        # 计算平均速度和平均加速度
+        # Calculate the average velocity and acceleration
         left_velocities.append(np.mean(np.abs(left_velocity)))
         left_accelerations.append(np.mean(np.abs(left_acceleration)))
         right_velocities.append(np.mean(np.abs(right_velocity)))
         right_accelerations.append(np.mean(np.abs(right_acceleration)))
 
-    # 保存速度对比图
+    # Save velocity comparison plot
     velocity_save_path = os.path.join(settings.MEDIA_ROOT, 'velocity_comparison.png')
     plot_bar_chart(left_velocities, right_velocities, keypoint_labels, '速度', '速度比较', velocity_save_path)
 
-    # 保存加速度对比图
+    # Save acceleration comparison plot
     acceleration_save_path = os.path.join(settings.MEDIA_ROOT, 'acceleration_comparison.png')
     plot_bar_chart(left_accelerations, right_accelerations, keypoint_labels, '加速度', '加速度比较', acceleration_save_path)
 
-    # 返回图的路径
+    # Return the paths to the generated plots
     return {
         'velocity_plot': settings.MEDIA_URL + 'velocity_comparison.png',
         'acceleration_plot': settings.MEDIA_URL + 'acceleration_comparison.png'
     }
-
-
 
 # 数据处理和判别方法
 from django.shortcuts import render
