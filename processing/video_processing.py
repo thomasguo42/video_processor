@@ -124,9 +124,13 @@ def get_human_indices_from_user(num_humans, first_frame_results, source):
 
 def process_video_and_extract_data(results, source, tracked_indices):
     left_xdata = {k: [] for k in range(7, 17)}
+    left_xdata['Frame'] = []  # Initialize 'Frame' key
     left_ydata = {k: [] for k in range(7, 17)}
+    left_ydata['Frame'] = []  # Initialize 'Frame' key
     right_xdata = {k: [] for k in range(7, 17)}
+    right_xdata['Frame'] = []  # Initialize 'Frame' key
     right_ydata = {k: [] for k in range(7, 17)}
+    right_ydata['Frame'] = []  # Initialize 'Frame' key
     checker_list = []
     video_angle = ''
 
@@ -220,6 +224,10 @@ def process_video_and_extract_data(results, source, tracked_indices):
                         right_ydata[j].append(keys[e][j][1] / c)
                         right_xdata[j + 1].append(keys[e][j + 1][0] / c)
                         right_ydata[j + 1].append(keys[e][j + 1][1] / c)
+            left_xdata['Frame'].append(i)
+            left_ydata['Frame'].append(i)
+            right_xdata['Frame'].append(i)
+            right_ydata['Frame'].append(i)
             i+=1
 
         except:
@@ -379,10 +387,10 @@ def extract_data(source, results, first_frame_results, tracked_indices):
     video_angle_df = pd.DataFrame([video_angle], columns=['Video Angle'])
     
     # Add original frame index as a column
-    left_xdata_df['Frame'] = left_xdata_df.index
-    left_ydata_df['Frame'] = left_ydata_df.index
-    right_xdata_df['Frame'] = right_xdata_df.index
-    right_ydata_df['Frame'] = right_ydata_df.index
+    #left_xdata_df['Frame'] = left_xdata_df.index
+    #left_ydata_df['Frame'] = left_ydata_df.index
+    #right_xdata_df['Frame'] = right_xdata_df.index
+    #right_ydata_df['Frame'] = right_ydata_df.index
     
     # Initialize a set to collect indices with zero values
     zero_indices = set()
