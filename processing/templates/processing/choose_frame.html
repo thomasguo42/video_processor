@@ -1,18 +1,29 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Select Humans</title>
+    <title>选择击剑运动员</title>
 </head>
 <body>
-    <h1>Select Humans to Track</h1>
-    <img src="{{ choose_frame_url }}" alt="Choose Frame" style="display: block; margin-left: auto; margin-right: auto;" />
+    <h1>选择要追踪的击剑运动员</h1>
+    <img src="{{ choose_frame_url }}" alt="选择帧" style="display: block; margin-left: auto; margin-right: auto;" />
+
     <form method="post" action="{% url 'process_data' video_id=video_id index1=0 index2=0 %}">
         {% csrf_token %}
-        <label for="index1">Enter the index of the left fencer:</label>
-        <input type="number" id="index1" name="index1"><br><br>
-        <label for="index2">Enter the index of the right fencer:</label>
-        <input type="number" id="index2" name="index2"><br><br>
-        <button type="submit">Submit</button>
+        <label for="index1">选择第一位击剑运动员：</label>
+        <select id="index1" name="index1">
+            {% for i in human_indices %}
+            <option value="{{ i }}">{{ i }}</option>
+            {% endfor %}
+        </select><br><br>
+
+        <label for="index2">选择第二位击剑运动员：</label>
+        <select id="index2" name="index2">
+            {% for i in human_indices %}
+            <option value="{{ i }}">{{ i }}</option>
+            {% endfor %}
+        </select><br><br>
+
+        <button type="submit">提交</button>
     </form>
 </body>
 </html>
