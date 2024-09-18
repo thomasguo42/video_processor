@@ -94,7 +94,7 @@ def plot_bar_chart(left_data, right_data, keypoint_labels, ylabel, title, save_p
 
     # 使用中文字体
     plt.rcParams['font.sans-serif'] = ['Noto Sans CJK SC']  # Use Noto Sans CJK for Chinese characters
-    plt.rcParams['font.weight'] = 'Regular'  # Set the font weight to Regular
+    
     plt.rcParams['axes.unicode_minus'] = False  # Ensure minus signs are displayed correctly
 
 
