@@ -230,15 +230,10 @@ def process_video_and_extract_data(results, source, tracked_indices):
 
 
 
-import cv2
-import os
 
 import os
 from django.conf import settings
 
-import os
-import cv2
-from moviepy.editor import VideoFileClip
 
 import os
 import cv2
@@ -280,53 +275,66 @@ def add_keypoints_to_frame(frame, left_xdata_df, left_ydata_df, right_xdata_df, 
     
     return frame
 
-def generate_video_with_keypoints(
-    results, source_video_path, tracked_indices, left_xdata_df, left_ydata_df,
-    right_xdata_df, right_ydata_df, c, output_prefix, video_id
+def generate_video_with_keypoints_segment(
+    source_video_path, tracked_indices, left_xdata_df, left_ydata_df, right_xdata_df, right_ydata_df, c,
+    output_prefix, video_id, start_frame, end_frame
 ):
-    # Load the video using moviepy to get basic info
+    # Load the video using moviepy
     video = VideoFileClip(source_video_path)
-    fps = max(video.fps // 2, 15)  # Reducing fps for smaller file size if needed
+    fps = video.fps
+    
+    # Get the video resolution
     width, height = video.size
     
     # Create output directory for saving the video
     output_dir = os.path.join(settings.MEDIA_ROOT, output_prefix)
     os.makedirs(output_dir, exist_ok=True)
-
+    
+    # Convert frame indices to time in seconds
+    start_time = start_frame / fps
+    end_time = end_frame / fps
+    
+    # Extract the relevant portion of the video
+    video_segment = video.subclip(start_time, end_time)
+    
     # Construct the output video path
-    video_output_filename = f'output_with_keypoints_{video_id}.mp4'
+    video_output_filename = f'output_with_keypoints_segment_{video_id}.mp4'
     video_output_path = os.path.join(output_dir, video_output_filename)
-
+    
     # OpenCV VideoWriter setup
     fourcc = cv2.VideoWriter_fourcc(*'mp4v')  # Codec
     out = cv2.VideoWriter(video_output_path, fourcc, fps, (width, height))  # Use video size from moviepy
-
+    
     # Capture video frames using OpenCV
     cap = cv2.VideoCapture(source_video_path)
     frameNr = 0
-
-    # Process each frame and overlay keypoints
-    while cap.isOpened():
+    
+    # Skip frames until the start frame is reached
+    while frameNr < start_frame:
+        cap.grab()  # Skip frames
+        frameNr += 1
+    
+    # Process each frame and overlay keypoints, from start_frame to end_frame
+    while frameNr <= end_frame:
         ret, frame = cap.read()
         if not ret:
             break
-
+        
         # Add keypoints to the current frame
         frame = add_keypoints_to_frame(frame, left_xdata_df, left_ydata_df, right_xdata_df, right_ydata_df, frameNr, c)
         
         # Write the modified frame to the output video
         out.write(frame)
         frameNr += 1
-
+    
     # Clean up
     cap.release()
     out.release()
-
+    
     # Create the media URL for the output video
     video_output_url = os.path.join(settings.MEDIA_URL, output_prefix, video_output_filename)
-
+    
     return video_output_url  # Return the URL for the saved video
-
 
 # Function to update zero_indices while skipping specified columns
 def update_zero_indices(df, zero_indices, columns_to_skip):
