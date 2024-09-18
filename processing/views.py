@@ -285,7 +285,7 @@ def process_data(request, video_id, index1, index2):
                     'left_percentage': left_p,
                     'right_percentage': right_p,
                     'plot_urls': None,  # Case 2 (no plots)
-                    'video_with_keypoints_url': settings.MEDIA_URL + os.path.basename(video_with_keypoints_path),  # Keypoint video
+                    'video_with_keypoints_url': os.path.join(settings.MEDIA_URL, video_with_keypoints_path),
                     'all_segments_sorted': all_segments_sorted,  # Sorted segments with labels
                 }
 
