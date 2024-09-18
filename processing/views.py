@@ -93,8 +93,9 @@ def plot_bar_chart(left_data, right_data, keypoint_labels, ylabel, title, save_p
     index = np.arange(len(keypoint_labels))  # 柱状图标识
 
     # 使用中文字体
-    plt.rcParams['font.sans-serif'] = ['SimHei']  # For Windows (SimHei is a common Chinese font)
-    plt.rcParams['axes.unicode_minus'] = False    # Ensure negative signs appear correctly
+    plt.rcParams['font.sans-serif'] = ['Noto Sans CJK SC']  # Use Noto Sans CJK for Chinese characters
+    plt.rcParams['axes.unicode_minus'] = False  # Ensure negative signs are displayed correctly
+
 
     plt.figure(figsize=(10, 6))
     
