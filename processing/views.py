@@ -258,7 +258,7 @@ def process_data(request, video_id, index1, index2):
                 all_segments = []
                 if left_processed_segments:
                     left_frame_intervals = get_frame_intervals(left_processed_segments, left_xdata_new_df['Frame'])
-                    left_segments_video_url = cut_video_segments(source, left_frame_intervals, 'left_segments', video_id)
+                    left_segments_video_url = cut_video_segments(source, left_frame_intervals, 'left_segments', video_id, left_xdata_df, left_ydata_df, right_xdata_df, right_ydata_df, c)
                     for i, url in enumerate(left_segments_video_url):
                         all_segments.append({
                             'url': url,
@@ -268,7 +268,7 @@ def process_data(request, video_id, index1, index2):
 
                 if right_processed_segments:
                     right_frame_intervals = get_frame_intervals(right_processed_segments, right_xdata_new_df['Frame'])
-                    right_segments_video_url = cut_video_segments(source, right_frame_intervals, 'right_segments', video_id)
+                    right_segments_video_url = cut_video_segments(source, right_frame_intervals, 'right_segments', video_id, left_xdata_df, left_ydata_df, right_xdata_df, right_ydata_df, c)
                     for i, url in enumerate(right_segments_video_url):
                         all_segments.append({
                             'url': url,
