@@ -1,24 +1,62 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Final Results</title>
+    <title>最终结果</title>
+    <style>
+        table, th, td {
+            border: 1px solid black;
+            border-collapse: collapse;
+            padding: 8px;
+        }
+
+        th {
+            background-color: #f2f2f2;
+        }
+
+        .center {
+            text-align: center;
+        }
+    </style>
 </head>
 <body>
-    <h1>Final Winner: {{ final_winner }}</h1>
-    <h2>Left Percentage: {{ left_percentage }}%</h2>
-    <h2>Right Percentage: {{ right_percentage }}%</h2>
+    <h1>最终获胜者: {{ final_winner }}</h1>
 
-    <h2>Video with Keypoints</h2>
+    <h2>左方获胜概率: {{ left_percentage }}%</h2>
+    <h2>右方获胜概率: {{ right_percentage }}%</h2>
+
+    <h2>AI处理结果</h2>
     <video width="640" height="360" controls>
         <source src="{{ video_with_keypoints_url }}" type="video/mp4">
-        Your browser does not support the video tag.
+        您的浏览器不支持视频播放。
+    </video>
+
+    {% if plot_urls %}
+    <!-- 情况 1: 显示柱状图 -->
+    <h2>速度比较 (左 vs 右)</h2>
+    <img src="{{ plot_urls.velocity_plot }}" alt="速度比较">
+
+    <h2>加速度比较 (左 vs 右)</h2>
+    <img src="{{ plot_urls.acceleration_plot }}" alt="加速度比较">
+    {% else %}
+    <!-- 情况 2: 显示视频片段 -->
+    <h2>视频片段时间顺序 (包含左方和右方停顿)</h2>
+    {% for segment in all_segments_sorted %}
+    <h3>{{ forloop.counter }} - {{ segment.label }}</h3>
+    <video width="640" height="360" controls>
+        <source src="{{ segment.url }}" type="video/mp4">
+        您的浏览器不支持视频播放。
     </video>
     <br>
-    <a href="{{ video_with_keypoints_url }}" download>Download Video with Keypoints</a>
+    {% endfor %}
+    {% endif %}
 
-    <!-- Add a "Submit Another Video" button -->
-    <form action="{% url 'video_upload' %}" method="get">
-        <button type="submit">Submit Another Video</button>
-    </form>
+    <!-- 提交另一个视频的按钮 -->
+    <div class="center">
+        <h2>提交另一个视频</h2>
+        <form action="{% url 'video_upload' %}" method="get">
+            <button type="submit">上传另一个视频</button>
+        </form>
+    </div>
+
 </body>
 </html>
