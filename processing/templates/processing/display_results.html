@@ -25,20 +25,25 @@
     <h2>右方获胜概率: {{ right_percentage }}%</h2>
 
     <h2>AI处理结果</h2>
+
+    <!-- Display Keypoint Video -->
+    {% if video_with_keypoints_url %}
+    <h2>关键点视频</h2>
     <video width="640" height="360" controls>
-        <source src="{{ video_with_keypoints_url }}" type="video/mp4">
+        <source src="{{ video_with_keypoints_url.0.url }}" type="video/mp4">  <!-- Display the keypoint video from the list -->
         您的浏览器不支持视频播放。
     </video>
+    {% endif %}
 
     {% if plot_urls %}
-    <!-- 情况 1: 显示柱状图 -->
+    <!-- Case 1: Display bar charts -->
     <h2>速度比较 (左 vs 右)</h2>
     <img src="{{ plot_urls.velocity_plot }}" alt="速度比较">
 
     <h2>加速度比较 (左 vs 右)</h2>
     <img src="{{ plot_urls.acceleration_plot }}" alt="加速度比较">
     {% else %}
-    <!-- 情况 2: 显示视频片段 -->
+    <!-- Case 2: Display video segments for left and right pauses -->
     <h2>视频片段时间顺序 (包含左方和右方停顿)</h2>
     {% for segment in all_segments_sorted %}
     <h3>{{ forloop.counter }} - {{ segment.label }}</h3>
@@ -50,7 +55,7 @@
     {% endfor %}
     {% endif %}
 
-    <!-- 提交另一个视频的按钮 -->
+    <!-- Submit another video -->
     <div class="center">
         <h2>提交另一个视频</h2>
         <form action="{% url 'video_upload' %}" method="get">
