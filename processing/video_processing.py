@@ -131,18 +131,29 @@ def process_video_and_extract_data(results, source, tracked_indices):
     video_angle = ''
 
     p, q = tracked_indices
-    values = [results[0].cpu().keypoints.xy.numpy()[p][16][0], results[0].cpu().keypoints.xy.numpy()[p][15][0], 
-              results[0].cpu().keypoints.xy.numpy()[q][16][0], results[0].cpu().keypoints.xy.numpy()[q][15][0]]
+    print ('getting value')
+    for i in range (len(results)):
+        try:
+            values = [results[i].cpu().keypoints.xy.numpy()[p][16][0], results[i].cpu().keypoints.xy.numpy()[p][15][0], 
+                      results[i].cpu().keypoints.xy.numpy()[q][16][0], results[i].cpu().keypoints.xy.numpy()[q][15][0]]
+            print ('get value')
+            sorted_values = sorted(values, reverse=True)
+            b = sorted_values[1]
+            a = sorted_values[2]
+            c = abs((b-a)/4)
+            break
+        except:
+            continue
 
-    sorted_values = sorted(values, reverse=True)
-    b = sorted_values[1]
-    a = sorted_values[2]
-    c = abs((b-a)/4)
+    for i in range (len(results)):
+        try:
+            current_boxes = results[i].cpu().boxes.xyxy.numpy()
+            left_box_area = (current_boxes[p][2] - current_boxes[p][0]) * (current_boxes[p][3] - current_boxes[p][1])
+            right_box_area = (current_boxes[q][2] - current_boxes[q][0]) * (current_boxes[q][3] - current_boxes[q][1])
+            break
+        except:
+            continue
 
-    current_boxes = results[0].cpu().boxes.xyxy.numpy()
-    left_box_area = (current_boxes[p][2] - current_boxes[p][0]) * (current_boxes[p][3] - current_boxes[p][1])
-    right_box_area = (current_boxes[q][2] - current_boxes[q][0]) * (current_boxes[q][3] - current_boxes[q][1])
-    
     if left_box_area >= 1.75 * right_box_area:
         video_angle = 'left'
     elif right_box_area >= 1.75 * left_box_area:
@@ -225,7 +236,7 @@ import os
 import os
 from django.conf import settings
 
-def generate_video_with_keypoints(results, source, tracked_indices):
+def generate_video_with_keypoints(results, source, tracked_indices, left_xdata_df, left_ydata_df, right_xdata_df, right_ydata_df, c):
     cap = cv2.VideoCapture(source)
     fourcc = cv2.VideoWriter_fourcc(*'mp4v')
 
@@ -234,26 +245,59 @@ def generate_video_with_keypoints(results, source, tracked_indices):
 
     out = cv2.VideoWriter(video_path, fourcc, 30.0, (int(cap.get(3)), int(cap.get(4))))
 
-    for r in results:
+    frameNr = 0
+
+    while True:
         try:
             ret, frame = cap.read()
             if not ret:
                 break
-            for i in range(len(r.cpu().keypoints.xy.numpy())):
-                for kpt in r.cpu().keypoints.xy.numpy()[i]:
-                    x_coord = int(kpt[0])
-                    y_coord = int(kpt[1])
-                    cv2.circle(frame, (x_coord, y_coord), 5, (0, 255, 0), -1)
-                    cv2.putText(frame, f'{x_coord}', (x_coord + 10, y_coord), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1, cv2.LINE_AA)
+
+            # Get the corresponding row for this frame from the dataframes
+            left_x_frame_row = left_xdata_df[left_xdata_df['Frame'] == frameNr]
+            right_x_frame_row = right_xdata_df[right_xdata_df['Frame'] == frameNr]
+            left_y_frame_row = left_ydata_df[left_xdata_df['Frame'] == frameNr]
+            right_y_frame_row = right_ydata_df[right_xdata_df['Frame'] == frameNr]
+
+            # If there is no matching row for this frame, skip to the next frame
+            if left_x_frame_row.empty or right_x_frame_row.empty:
+                frameNr += 1
+                continue
+
+            # Add key points for the two chosen fencers
+            for j in range(7, 17):  # You are using columns 7 to 16 for keypoints
+                try:
+                    # Plot keypoints for the left fencer (match the 'Frame' row)
+                    left_x = int(left_x_frame_row[j].values[0] * c)
+                    left_y = int(left_y_frame_row[j].values[0] * c)
+                    cv2.circle(frame, (left_x, left_y), 5, (0, 255, 0), -1)
+                    cv2.putText(frame, f'{j}', (left_x + 10, left_y), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1, cv2.LINE_AA)
+
+                    # Plot keypoints for the right fencer (match the 'Frame' row)
+                    right_x = int(right_x_frame_row[j].values[0] * c)
+                    right_y = int(right_y_frame_row[j].values[0] * c)
+                    cv2.circle(frame, (right_x, right_y), 5, (0, 0, 255), -1)
+                    cv2.putText(frame, f'{j}', (right_x + 10, right_y), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1, cv2.LINE_AA)
+
+                except KeyError:
+                    # In case any keypoint data is missing
+                    continue
+
+            # Write the modified frame to the output video
             out.write(frame)
+
+            frameNr += 1
         except Exception as e:
-            print(f"Error processing frame: {e}")
+            print(f"Error processing frame {frameNr}: {e}")
+            frameNr += 1
             continue
 
     cap.release()
     out.release()
 
     return video_path  # Return the full path to the saved video
+
+
 
 
 
@@ -292,8 +336,7 @@ def process_video(source):
 
 def extract_data(source, results, first_frame_results, tracked_indices):
     left_xdata, left_ydata, right_xdata, right_ydata, c, checker_list, video_angle = process_video_and_extract_data(results, source, tracked_indices)
-    video_path = generate_video_with_keypoints(results, source, tracked_indices)
-
+    print ('Update zeros')
     left_xdata_df = pd.DataFrame(left_xdata)
     left_ydata_df = pd.DataFrame(left_ydata)
     right_xdata_df = pd.DataFrame(right_xdata)
@@ -326,7 +369,7 @@ def extract_data(source, results, first_frame_results, tracked_indices):
     right_xdata_df = right_xdata_df.drop(index=zero_indices)
     right_ydata_df = right_ydata_df.drop(index=zero_indices)
 
-    return left_xdata_df, left_ydata_df, right_xdata_df, right_ydata_df, c, checker_list_df, video_angle_df, video_path
+    return left_xdata_df, left_ydata_df, right_xdata_df, right_ydata_df, c, checker_list_df, video_angle_df
 
 def extract_keypoints(xdata, ydata, index):
     return {
@@ -554,6 +597,7 @@ def find_end_frame(left_xdata_new_df, right_xdata_new_df, all_jerk_frames):
     
     # Filter end_segments based on all_jerk_frames
     filtered_end_segments = filter_segments_by_jerk_frames(end_segments, all_jerk_frames)
+    print (end_segments, all_jerk_frames, filtered_end_segments)
     
     if not filtered_end_segments:
         filtered_end_segments = end_segments[-1]
@@ -841,7 +885,7 @@ def calculate_velocity_acceleration(data):
 
     return velocity, acceleration
 
-def calculate_composite_scores(xdata, keypoints=[10, 16], velocity_weight=0.8, acceleration_weight=0.2):
+def calculate_composite_scores(xdata, keypoints=[8, 10, 16], velocity_weight=0.8, acceleration_weight=0.2):
     composite_scores = []
 
     for k in keypoints:
@@ -957,6 +1001,8 @@ def find_ai_winner(new_left_xdata_df, new_left_ydata_df, new_right_xdata_df, new
         winner_ai = 'left'
     elif right_count > left_count:
         winner_ai = 'right'
+    else:
+        winner_ai = 'sim'
 
     print(f"'Left' files: {left_percentage:.2f}%")
     print(f"'Right' files: {right_percentage:.2f}%")
@@ -1001,3 +1047,60 @@ def find_winner(left_xdata_new_df, left_ydata_new_df, right_xdata_new_df, right_
         final_winner = rule_winner
 
     return final_winner, left_percentage, right_percentage, left_processed_segments, right_processed_segments
+
+import matplotlib.pyplot as plt
+import numpy as np
+import moviepy.editor as mp
+
+
+def get_frame_intervals(segments, frame_data):
+    frame_intervals = []
+    for seg in segments:
+        start_frame = frame_data.iloc[seg[0]]
+        end_frame = frame_data.iloc[seg[1]]
+        frame_intervals.append((start_frame, end_frame))
+    return frame_intervals
+
+
+def cut_video_segments(source_video_path, frame_intervals, output_prefix, video_id):
+    # Load the video
+    video = mp.VideoFileClip(source_video_path)
+    fps = video.fps
+
+    # Create a directory for the output segments inside MEDIA_ROOT
+    output_dir = os.path.join(settings.MEDIA_ROOT, output_prefix)
+    os.makedirs(output_dir, exist_ok=True)
+
+    segment_urls = []
+
+    # Process each interval
+    for i, (start_frame, end_frame) in enumerate(frame_intervals):
+        start_time = start_frame / fps
+        end_time = end_frame / fps
+        segment = video.subclip(start_time, end_time)
+
+        # Save the segment to the output directory
+        segment_output_filename = f'segment_{i+1}_{video_id}.mp4'
+        segment_output_path = os.path.join(output_dir, segment_output_filename)
+        segment.write_videofile(segment_output_path, codec="libx264")
+
+        # Create the media URL for this segment and append it to the list
+        segment_url = os.path.join(settings.MEDIA_URL, output_prefix, segment_output_filename)
+        segment_urls.append(segment_url)
+
+    video.close()
+    return segment_urls
+
+
+def calculate_velocity_acceleration(data):
+    # Fit a second-degree polynomial to the data
+    x = np.arange(len(data))
+    poly = Polynomial.fit(x, data, 2)
+
+    # Calculate velocity as the first derivative of the polynomial
+    velocity = poly.deriv(1)(x)
+
+    # Calculate acceleration as the second derivative of the polynomial
+    acceleration = poly.deriv(2)(x)
+
+    return velocity, acceleration
