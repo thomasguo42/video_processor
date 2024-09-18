@@ -241,7 +241,7 @@ def generate_video_with_keypoints(results, source, tracked_indices, left_xdata_d
     fourcc = cv2.VideoWriter_fourcc(*'mp4v')
 
     # Construct the path where the video will be saved inside MEDIA_ROOT
-    video_path = os.path.join(settings.MEDIA_ROOT, f'output_with_keypoints_{os.path.basename(source)}.mp4')
+    video_path = os.path.join(settings.MEDIA_ROOT, f'output_with_keypoints_{os.path.basename(source)}')
 
     out = cv2.VideoWriter(video_path, fourcc, 30.0, (int(cap.get(3)), int(cap.get(4))))
 
