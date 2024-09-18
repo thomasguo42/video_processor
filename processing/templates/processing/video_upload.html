@@ -1,14 +1,15 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Upload Video</title>
+    <title>上传视频</title>
 </head>
 <body>
-    <h1>Upload Video</h1>
+    <h1>上传视频</h1>
     <form method="post" enctype="multipart/form-data">
         {% csrf_token %}
         {{ form.as_p }}
-        <button type="submit">Upload</button>
+        <button type="submit">上传</button>
     </form>
 </body>
 </html>
+
