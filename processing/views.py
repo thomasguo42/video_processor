@@ -70,7 +70,7 @@ def video_upload_view(request):
 from .models import VideoUpload
 import os
 from .video_processing import process_video, extract_data, cut_video
-from .video_processing import find_winner, generate_video_with_keypoints, get_frame_intervals, calculate_velocity_acceleration, cut_video_segments  # Import the function from your script
+from .video_processing import find_winner, generate_video_with_keypoints_segment, get_frame_intervals, calculate_velocity_acceleration, cut_video_segments  # Import the function from your script
 import pickle
 from django.conf import settings
 from django.http import HttpResponse
@@ -182,16 +182,17 @@ def process_data(request, video_id, index1, index2):
         left_xdata_df, left_ydata_df, right_xdata_df, right_ydata_df, c, checker_list_df, video_angle_df = extract_data(source, results, first_frame_results, tracked_indices)
         print("Video processed.")
 
-        # Generate video with keypoints
-        print("Generating video with keypoints...")
-        video_with_keypoints_path = generate_video_with_keypoints(results, source, tracked_indices, left_xdata_df, left_ydata_df, right_xdata_df, right_ydata_df, c, 'keypoints', video_id)
-        print("Generated video with keypoints.")
-        video_with_keypoints_url = os.path.join(settings.MEDIA_URL, 'keypoints', os.path.basename(video_with_keypoints_path))
-
+        
         # Cut video data
         print("Cutting video data...")
         left_xdata_new_df, left_ydata_new_df, right_xdata_new_df, right_ydata_new_df, latest_end, end_frame = cut_video(left_xdata_df, left_ydata_df, right_xdata_df, right_ydata_df, video_angle_df)
         print("Video cut completed.")
+
+        # Generate video with keypoints
+        print("Generating video with keypoints...")
+        video_with_keypoints_path = generate_video_with_keypoints_segment(source, tracked_indices, left_xdata_df, left_ydata_df, right_xdata_df, right_ydata_df, c, 'keypoints', video_id, latest_end, end_frame)
+        print("Generated video with keypoints.")
+        video_with_keypoints_url = os.path.join(settings.MEDIA_URL, 'keypoints', os.path.basename(video_with_keypoints_path))
 
         # Determine winner
         print("Finding winner...")
