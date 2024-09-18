@@ -1075,18 +1075,26 @@ def get_frame_intervals(segments, frame_data):
     return frame_intervals
 
 
+from moviepy.editor import VideoFileClip
+from moviepy.video.VideoClip import ImageClip
+from PIL import Image, ImageDraw
+import numpy as np
+
+from moviepy.editor import VideoFileClip
+from PIL import Image, ImageDraw
+import numpy as np
+import os
+
 def cut_video_segments(
     source_video_path, frame_intervals, output_prefix, video_id,
     left_xdata_df, left_ydata_df, right_xdata_df, right_ydata_df, c
 ):
     # Load the video using moviepy
-    video = mp.VideoFileClip(source_video_path)
+    video = VideoFileClip(source_video_path)
     fps = video.fps
-    
-    # Get video resolution
     width, height = video.size
 
-    # Create output directory for saving the video segments
+    # Create a directory for the output segments inside MEDIA_ROOT
     output_dir = os.path.join(settings.MEDIA_ROOT, output_prefix)
     os.makedirs(output_dir, exist_ok=True)
 
@@ -1096,61 +1104,50 @@ def cut_video_segments(
     for i, (start_frame, end_frame) in enumerate(frame_intervals):
         start_time = start_frame / fps
         end_time = end_frame / fps
-        
-        # Extract the segment of the video
         segment = video.subclip(start_time, end_time)
 
-        # Create OpenCV VideoWriter to save each segment with keypoints
-        video_output_filename = f'segment_with_keypoints_{i+1}_{video_id}.mp4'
-        video_output_path = os.path.join(output_dir, video_output_filename)
-        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-        out = cv2.VideoWriter(video_output_path, fourcc, fps, (width, height))
+        # Function to add keypoints to a frame
+        def add_keypoints_to_frame(get_frame, t):
+            # Extract the frame as an image
+            frame = get_frame(t)
+            frame_pil = Image.fromarray(frame)
+            draw = ImageDraw.Draw(frame_pil)
 
-        # Open the video segment frame by frame using OpenCV
-        cap = cv2.VideoCapture(source_video_path)
-        cap.set(cv2.CAP_PROP_POS_FRAMES, start_frame)
-
-        frameNr = start_frame
-        while frameNr <= end_frame:
-            ret, frame = cap.read()
-            if not ret:
-                break
-            
-            # Get corresponding rows for keypoints from the dataframes
+            # Get corresponding keypoints based on frame number
+            frameNr = int(t * fps) + start_frame
             left_x_frame_row = left_xdata_df[left_xdata_df['Frame'] == frameNr]
             right_x_frame_row = right_xdata_df[right_xdata_df['Frame'] == frameNr]
-            left_y_frame_row = left_ydata_df[left_ydata_df['Frame'] == frameNr]
-            right_y_frame_row = right_ydata_df[right_ydata_df['Frame'] == frameNr]
+            left_y_frame_row = left_ydata_df[left_xdata_df['Frame'] == frameNr]
+            right_y_frame_row = right_ydata_df[right_xdata_df['Frame'] == frameNr]
 
-            # Only overlay keypoints if matching data exists
+            # If keypoints are available for this frame, plot them
             if not left_x_frame_row.empty and not right_x_frame_row.empty:
                 for j in range(7, 17):  # Columns 7 to 16 for keypoints
                     try:
-                        # Get and plot keypoints for the left fencer
+                        # Plot keypoints for the left fencer
                         left_x = int(left_x_frame_row[j].values[0] * c)
                         left_y = int(left_y_frame_row[j].values[0] * c)
-                        cv2.circle(frame, (left_x, left_y), 5, (0, 255, 0), -1)
-                        cv2.putText(frame, f'{j}', (left_x + 10, left_y), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
+                        draw.ellipse((left_x - 5, left_y - 5, left_x + 5, left_y + 5), outline='green', width=3)
 
-                        # Get and plot keypoints for the right fencer
+                        # Plot keypoints for the right fencer
                         right_x = int(right_x_frame_row[j].values[0] * c)
                         right_y = int(right_y_frame_row[j].values[0] * c)
-                        cv2.circle(frame, (right_x, right_y), 5, (0, 0, 255), -1)
-                        cv2.putText(frame, f'{j}', (right_x + 10, right_y), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
+                        draw.ellipse((right_x - 5, right_y - 5, right_x + 5, right_y + 5), outline='red', width=3)
                     except KeyError:
-                        # Handle missing keypoints for this frame
                         continue
 
-            # Write the frame with keypoints to the output video
-            out.write(frame)
-            frameNr += 1
+            return np.array(frame_pil)
 
-        # Release resources after segment processing
-        cap.release()
-        out.release()
+        # Apply keypoint overlay to the entire segment
+        segment_with_keypoints = segment.fl(add_keypoints_to_frame)
 
-        # Append segment URL to the list
-        segment_url = os.path.join(settings.MEDIA_URL, output_prefix, video_output_filename)
+        # Save the modified segment with keypoints
+        segment_output_filename = f'segment_with_keypoints_{i+1}_{video_id}.mp4'
+        segment_output_path = os.path.join(output_dir, segment_output_filename)
+        segment_with_keypoints.write_videofile(segment_output_path, codec="libx264", fps=fps)
+
+        # Add the segment URL to the list
+        segment_url = os.path.join(settings.MEDIA_URL, output_prefix, segment_output_filename)
         segment_urls.append(segment_url)
 
     video.close()
