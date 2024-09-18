@@ -243,12 +243,11 @@ from moviepy.editor import VideoFileClip
 def generate_video_with_keypoints(results, source_video_path, tracked_indices, left_xdata_df, left_ydata_df, right_xdata_df, right_ydata_df, c, output_prefix, video_id):
     # Load the video using moviepy
     video = VideoFileClip(source_video_path)
-    fps = max(video.fps // 2, 15)  # Reduce FPS by half, but ensure it's at least 15
+    fps = max(video.fps // 2, 15)
+    #fps = video.fps
     
-    # Get the video resolution and reduce it for smaller file size
+    # Get the video resolution
     width, height = video.size
-    width = width // 2  # Reduce width by half
-    height = height // 2  # Reduce height by half
     
     # Create output directory for saving the video
     output_dir = os.path.join(settings.MEDIA_ROOT, output_prefix)
@@ -313,6 +312,9 @@ def generate_video_with_keypoints(results, source_video_path, tracked_indices, l
     video_output_url = os.path.join(settings.MEDIA_URL, output_prefix, video_output_filename)
     
     return video_output_url  # Return the URL for the saved video
+
+
+
 
 
 
