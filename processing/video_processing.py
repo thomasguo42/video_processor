@@ -240,79 +240,92 @@ import os
 import cv2
 from moviepy.editor import VideoFileClip
 
-def generate_video_with_keypoints(results, source_video_path, tracked_indices, left_xdata_df, left_ydata_df, right_xdata_df, right_ydata_df, c, output_prefix, video_id):
-    # Load the video using moviepy
-    video = VideoFileClip(source_video_path)
-    fps = max(video.fps // 2, 15)
-    #fps = video.fps
+import os
+import cv2
+from moviepy.editor import VideoFileClip
+from moviepy.video.io.ffmpeg_tools import ffmpeg_extract_subclip
+
+def add_keypoints_to_frame(frame, left_xdata_df, left_ydata_df, right_xdata_df, right_ydata_df, frameNr, c):
+    """
+    Draw keypoints on the given frame based on the provided dataframes and scaling factor `c`.
+    """
+
+    # Get the corresponding row for this frame from the dataframes
+    left_x_frame_row = left_xdata_df[left_xdata_df['Frame'] == frameNr]
+    right_x_frame_row = right_xdata_df[right_xdata_df['Frame'] == frameNr]
+    left_y_frame_row = left_ydata_df[left_ydata_df['Frame'] == frameNr]
+    right_y_frame_row = right_ydata_df[right_ydata_df['Frame'] == frameNr]
+
+    # If there is no matching row for this frame, skip
+    if left_x_frame_row.empty or right_x_frame_row.empty:
+        return frame
+
+    # Add key points for the two chosen fencers
+    for j in range(7, 17):  # You are using columns 7 to 16 for keypoints
+        try:
+            # Plot keypoints for the left fencer (match the 'Frame' row)
+            left_x = int(left_x_frame_row[j].values[0] * c)
+            left_y = int(left_y_frame_row[j].values[0] * c)
+            cv2.circle(frame, (left_x, left_y), 5, (0, 255, 0), -1)  # Green for left
+            cv2.putText(frame, f'{j}', (left_x + 10, left_y), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1, cv2.LINE_AA)
+
+            # Plot keypoints for the right fencer (match the 'Frame' row)
+            right_x = int(right_x_frame_row[j].values[0] * c)
+            right_y = int(right_y_frame_row[j].values[0] * c)
+            cv2.circle(frame, (right_x, right_y), 5, (0, 0, 255), -1)  # Red for right
+            cv2.putText(frame, f'{j}', (right_x + 10, right_y), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1, cv2.LINE_AA)
+        except KeyError:
+            # In case any keypoint data is missing, skip it
+            continue
     
-    # Get the video resolution
+    return frame
+
+def generate_video_with_keypoints(
+    results, source_video_path, tracked_indices, left_xdata_df, left_ydata_df,
+    right_xdata_df, right_ydata_df, c, output_prefix, video_id
+):
+    # Load the video using moviepy to get basic info
+    video = VideoFileClip(source_video_path)
+    fps = max(video.fps // 2, 15)  # Reducing fps for smaller file size if needed
     width, height = video.size
     
     # Create output directory for saving the video
     output_dir = os.path.join(settings.MEDIA_ROOT, output_prefix)
     os.makedirs(output_dir, exist_ok=True)
-    
+
     # Construct the output video path
     video_output_filename = f'output_with_keypoints_{video_id}.mp4'
     video_output_path = os.path.join(output_dir, video_output_filename)
-    
+
     # OpenCV VideoWriter setup
     fourcc = cv2.VideoWriter_fourcc(*'mp4v')  # Codec
     out = cv2.VideoWriter(video_output_path, fourcc, fps, (width, height))  # Use video size from moviepy
-    
+
     # Capture video frames using OpenCV
     cap = cv2.VideoCapture(source_video_path)
     frameNr = 0
-    
+
     # Process each frame and overlay keypoints
     while cap.isOpened():
         ret, frame = cap.read()
         if not ret:
             break
-        
-        # Get the corresponding row for this frame from the dataframes
-        left_x_frame_row = left_xdata_df[left_xdata_df['Frame'] == frameNr]
-        right_x_frame_row = right_xdata_df[right_xdata_df['Frame'] == frameNr]
-        left_y_frame_row = left_ydata_df[left_xdata_df['Frame'] == frameNr]
-        right_y_frame_row = right_ydata_df[right_xdata_df['Frame'] == frameNr]
 
-        # If there is no matching row for this frame, skip to the next frame
-        if left_x_frame_row.empty or right_x_frame_row.empty:
-            frameNr += 1
-            continue
-        
-        # Add key points for the two chosen fencers
-        for j in range(7, 17):  # You are using columns 7 to 16 for keypoints
-            try:
-                # Plot keypoints for the left fencer (match the 'Frame' row)
-                left_x = int(left_x_frame_row[j].values[0] * c)
-                left_y = int(left_y_frame_row[j].values[0] * c)
-                cv2.circle(frame, (left_x, left_y), 5, (0, 255, 0), -1)
-                cv2.putText(frame, f'{j}', (left_x + 10, left_y), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1, cv2.LINE_AA)
-
-                # Plot keypoints for the right fencer (match the 'Frame' row)
-                right_x = int(right_x_frame_row[j].values[0] * c)
-                right_y = int(right_y_frame_row[j].values[0] * c)
-                cv2.circle(frame, (right_x, right_y), 5, (0, 0, 255), -1)
-                cv2.putText(frame, f'{j}', (right_x + 10, right_y), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1, cv2.LINE_AA)
-
-            except KeyError:
-                # In case any keypoint data is missing
-                continue
+        # Add keypoints to the current frame
+        frame = add_keypoints_to_frame(frame, left_xdata_df, left_ydata_df, right_xdata_df, right_ydata_df, frameNr, c)
         
         # Write the modified frame to the output video
         out.write(frame)
         frameNr += 1
-    
+
+    # Clean up
     cap.release()
     out.release()
-    
+
     # Create the media URL for the output video
     video_output_url = os.path.join(settings.MEDIA_URL, output_prefix, video_output_filename)
-    
-    return video_output_url  # Return the URL for the saved video
 
+    return video_output_url  # Return the URL for the saved video
 
 
 # Function to update zero_indices while skipping specified columns
