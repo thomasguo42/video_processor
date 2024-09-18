@@ -358,7 +358,7 @@ def process_video(source):
     if isinstance(source, list):  # If the source is a list, it's a single frame
         # Process a single frame
         frame = source[0]
-        model = YOLO("yolov8m-pose.pt")
+        model = YOLO("yolov8x-pose.pt")
         results = model([frame])  # Process the single frame
         first_frame_results = results[0]
         choose_frame = draw_boxes_on_first_frame(frame, first_frame_results)
@@ -367,7 +367,7 @@ def process_video(source):
         return results, first_frame_results, num_humans, if_proceed, choose_frame
     else:
         # Process the entire video
-        model = YOLO("yolov8m-pose.pt")
+        model = YOLO("yolov8x-pose.pt")
         results = model.track(source, persist=True)
         first_frame_results = results[0]
         num_humans = len(first_frame_results.cpu().boxes.xyxy.numpy())
