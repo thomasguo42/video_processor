@@ -315,9 +315,6 @@ def generate_video_with_keypoints(results, source_video_path, tracked_indices, l
 
 
 
-
-
-
 # Function to update zero_indices while skipping specified columns
 def update_zero_indices(df, zero_indices, columns_to_skip):
     # Filter out the columns that need to be skipped
@@ -1078,30 +1075,82 @@ def get_frame_intervals(segments, frame_data):
     return frame_intervals
 
 
-def cut_video_segments(source_video_path, frame_intervals, output_prefix, video_id):
-    # Load the video
+def cut_video_segments(
+    source_video_path, frame_intervals, output_prefix, video_id,
+    left_xdata_df, left_ydata_df, right_xdata_df, right_ydata_df, c
+):
+    # Load the video using moviepy
     video = mp.VideoFileClip(source_video_path)
     fps = video.fps
+    
+    # Get video resolution
+    width, height = video.size
 
-    # Create a directory for the output segments inside MEDIA_ROOT
+    # Create output directory for saving the video segments
     output_dir = os.path.join(settings.MEDIA_ROOT, output_prefix)
     os.makedirs(output_dir, exist_ok=True)
 
     segment_urls = []
 
-    # Process each interval
+    # Process each interval (start_frame, end_frame)
     for i, (start_frame, end_frame) in enumerate(frame_intervals):
         start_time = start_frame / fps
         end_time = end_frame / fps
+        
+        # Extract the segment of the video
         segment = video.subclip(start_time, end_time)
 
-        # Save the segment to the output directory
-        segment_output_filename = f'segment_{i+1}_{video_id}.mp4'
-        segment_output_path = os.path.join(output_dir, segment_output_filename)
-        segment.write_videofile(segment_output_path, codec="libx264")
+        # Create OpenCV VideoWriter to save each segment with keypoints
+        video_output_filename = f'segment_with_keypoints_{i+1}_{video_id}.mp4'
+        video_output_path = os.path.join(output_dir, video_output_filename)
+        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+        out = cv2.VideoWriter(video_output_path, fourcc, fps, (width, height))
 
-        # Create the media URL for this segment and append it to the list
-        segment_url = os.path.join(settings.MEDIA_URL, output_prefix, segment_output_filename)
+        # Open the video segment frame by frame using OpenCV
+        cap = cv2.VideoCapture(source_video_path)
+        cap.set(cv2.CAP_PROP_POS_FRAMES, start_frame)
+
+        frameNr = start_frame
+        while frameNr <= end_frame:
+            ret, frame = cap.read()
+            if not ret:
+                break
+            
+            # Get corresponding rows for keypoints from the dataframes
+            left_x_frame_row = left_xdata_df[left_xdata_df['Frame'] == frameNr]
+            right_x_frame_row = right_xdata_df[right_xdata_df['Frame'] == frameNr]
+            left_y_frame_row = left_ydata_df[left_ydata_df['Frame'] == frameNr]
+            right_y_frame_row = right_ydata_df[right_ydata_df['Frame'] == frameNr]
+
+            # Only overlay keypoints if matching data exists
+            if not left_x_frame_row.empty and not right_x_frame_row.empty:
+                for j in range(7, 17):  # Columns 7 to 16 for keypoints
+                    try:
+                        # Get and plot keypoints for the left fencer
+                        left_x = int(left_x_frame_row[j].values[0] * c)
+                        left_y = int(left_y_frame_row[j].values[0] * c)
+                        cv2.circle(frame, (left_x, left_y), 5, (0, 255, 0), -1)
+                        cv2.putText(frame, f'{j}', (left_x + 10, left_y), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
+
+                        # Get and plot keypoints for the right fencer
+                        right_x = int(right_x_frame_row[j].values[0] * c)
+                        right_y = int(right_y_frame_row[j].values[0] * c)
+                        cv2.circle(frame, (right_x, right_y), 5, (0, 0, 255), -1)
+                        cv2.putText(frame, f'{j}', (right_x + 10, right_y), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
+                    except KeyError:
+                        # Handle missing keypoints for this frame
+                        continue
+
+            # Write the frame with keypoints to the output video
+            out.write(frame)
+            frameNr += 1
+
+        # Release resources after segment processing
+        cap.release()
+        out.release()
+
+        # Append segment URL to the list
+        segment_url = os.path.join(settings.MEDIA_URL, output_prefix, video_output_filename)
         segment_urls.append(segment_url)
 
     video.close()
