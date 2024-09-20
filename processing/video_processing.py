@@ -8,6 +8,8 @@ from tqdm import tqdm
 import math
 import os
 from numpy.polynomial.polynomial import Polynomial
+from django.conf import settings
+
 
 
 # Function to get the largest two human bounding boxes or user-selected ones
@@ -135,6 +137,12 @@ def process_video_and_extract_data(results, source, tracked_indices):
     video_angle = ''
 
     p, q = tracked_indices
+    if results[0].cpu().keypoints.xy.numpy()[p][16][0] > results[0].cpu().keypoints.xy.numpy()[q][16][0]:
+        temp = q
+        q = p
+        p = temp
+
+    print (p, q)
     print ('getting value')
     for i in range (len(results)):
         try:
@@ -240,7 +248,7 @@ def process_video_and_extract_data(results, source, tracked_indices):
 
 
 import os
-from django.conf import settings
+#from django.conf import settings
 
 
 import os
@@ -287,23 +295,16 @@ def generate_video_with_keypoints_segment(
     source_video_path, tracked_indices, left_xdata_df, left_ydata_df, right_xdata_df, right_ydata_df, c,
     output_prefix, video_id, start_frame, end_frame
 ):
+    # Create output directory using the video_id
+    output_dir = os.path.join(settings.MEDIA_ROOT, f'upload_{video_id}', output_prefix)
+    os.makedirs(output_dir, exist_ok=True)
+
     # Load the video using moviepy
     video = VideoFileClip(source_video_path)
     fps = video.fps
     
     # Get the video resolution
     width, height = video.size
-    
-    # Create output directory for saving the video
-    output_dir = os.path.join(settings.MEDIA_ROOT, output_prefix)
-    os.makedirs(output_dir, exist_ok=True)
-    
-    # Convert frame indices to time in seconds
-    start_time = start_frame / fps
-    end_time = end_frame / fps
-    
-    # Extract the relevant portion of the video
-    video_segment = video.subclip(start_time, end_time)
     
     # Construct the output video path
     video_output_filename = f'output_with_keypoints_segment_{video_id}.mp4'
@@ -317,13 +318,8 @@ def generate_video_with_keypoints_segment(
     cap = cv2.VideoCapture(source_video_path)
     frameNr = 0
     
-    # Skip frames until the start frame is reached
-    while frameNr < start_frame:
-        cap.grab()  # Skip frames
-        frameNr += 1
-    
-    # Process each frame and overlay keypoints, from start_frame to end_frame
-    while frameNr <= end_frame:
+    # Process each frame and overlay keypoints without skipping frames
+    while True:
         ret, frame = cap.read()
         if not ret:
             break
@@ -340,9 +336,11 @@ def generate_video_with_keypoints_segment(
     out.release()
     
     # Create the media URL for the output video
-    video_output_url = os.path.join(settings.MEDIA_URL, output_prefix, video_output_filename)
+    video_output_url = os.path.join(settings.MEDIA_URL, f'upload_{video_id}', output_prefix, video_output_filename)
     
     return video_output_url  # Return the URL for the saved video
+
+
 
 # Function to update zero_indices while skipping specified columns
 def update_zero_indices(df, zero_indices, columns_to_skip):
@@ -358,7 +356,7 @@ def process_video(source):
     if isinstance(source, list):  # If the source is a list, it's a single frame
         # Process a single frame
         frame = source[0]
-        model = YOLO("yolov8x-pose.pt")
+        model = YOLO("yolov8m-pose.pt")
         results = model([frame])  # Process the single frame
         first_frame_results = results[0]
         choose_frame = draw_boxes_on_first_frame(frame, first_frame_results)
@@ -367,7 +365,7 @@ def process_video(source):
         return results, first_frame_results, num_humans, if_proceed, choose_frame
     else:
         # Process the entire video
-        model = YOLO("yolov8x-pose.pt")
+        model = YOLO("yolov8m-pose.pt")
         results = model.track(source, persist=True)
         first_frame_results = results[0]
         num_humans = len(first_frame_results.cpu().boxes.xyxy.numpy())
@@ -517,7 +515,7 @@ def calculate_angle_differences(left_xdata_new_df, left_ydata_new_df, right_xdat
     angle_differences_df['Total_Diff'] = angle_differences_df.drop(columns=['Frame']).sum(axis=1)
 
     # Identify the threshold for the lowest 20% of the summed differences
-    threshold = angle_differences_df['Total_Diff'].quantile(0.20)
+    threshold = angle_differences_df['Total_Diff'].quantile(0.25)
     
     # Find segments where all values are below the threshold
     segments = []
@@ -604,7 +602,7 @@ def find_longest_segment(segments):
     if segment_lengths:
         longest_segment = max(segment_lengths, key=lambda x: x[1])[0]
         end_frame = longest_segment[0] + math.ceil((longest_segment[1] - longest_segment[0]) / 2)
-        return end_frame
+        return end_frame, longest_segment
     else:
         return None
 
@@ -615,107 +613,7 @@ def filter_segments_by_jerk_frames(segments, jerk_frames):
             filtered_segments.append(seg)
     return filtered_segments
 
-def find_end_frame(left_xdata_new_df, right_xdata_new_df, all_jerk_frames):
-    # Assume 'a' is already defined as:
-    a = abs(right_xdata_new_df[16] - left_xdata_new_df[16])
-    
-    end_frames = []
-    for i in range(len(a)):
-        try:
-            if 0 < a[i] < 0.5:  
-                end_frames.append(i)
-        except:
-            continue
-    if not end_frames:
-        thresh = a.quantile(0.10)
-        for i in range(len(a)):
-            try:
-                if 0 < a[i] < thresh:  
-                    end_frames.append(i)
-            except:
-                continue
-    end_segments = merge_consecutive_numbers(end_frames)
-    
-    
-    # Filter end_segments based on all_jerk_frames
-    filtered_end_segments = filter_segments_by_jerk_frames(end_segments, all_jerk_frames)
-    print (end_segments, all_jerk_frames, filtered_end_segments)
-    
-    if not filtered_end_segments:
-        filtered_end_segments = end_segments[-1]
-    
-    # Check if there is only one segment
-    if isinstance(filtered_end_segments, tuple):
-        # If it's a tuple (a single segment), we can directly use it
-        longest_segment = filtered_end_segments
-        end_frame = longest_segment[0] + math.ceil((longest_segment[1] - longest_segment[0]) / 2)
-    else:
-        # Otherwise, find the longest segment from the list of segments
-        end_frame = find_longest_segment(filtered_end_segments)
-
-    end_frame = end_frame - 7
-
-    return end_frame
-
-def calculate_center_of_mass(left_xdata_df_normalized, right_xdata_df_normalized):
-    left_x_coordinates = left_xdata_df_normalized.iloc[:, :-1].copy()
-    num_columns = left_x_coordinates.shape[1] - 1
-    remaining_weight = 0.2
-    even_weight = remaining_weight / num_columns
-
-    weights = pd.Series(even_weight, index=left_x_coordinates.columns)
-    weights[16] = 0.8
-
-    left_xdata_df_normalized['Center_of_Mass_X'] = (left_x_coordinates * weights).sum(axis=1)
-
-    right_x_coordinates = right_xdata_df_normalized.iloc[:, :-1].copy()
-    num_columns = right_x_coordinates.shape[1] - 1
-    even_weight = remaining_weight / num_columns
-
-    weights = pd.Series(even_weight, index=right_x_coordinates.columns)
-    weights[16] = 0.8
-
-    right_xdata_df_normalized['Center_of_Mass_X'] = (right_x_coordinates * weights).sum(axis=1)
-
-    return left_xdata_df_normalized, right_xdata_df_normalized
-
-def merge_consecutive_numbers(numbers):
-    if not numbers:
-        return []
-
-    # Sort the list first to ensure consecutive order
-    numbers = sorted(numbers)
-    
-    merged_segments = []
-    start = numbers[0]
-    end = numbers[0]
-
-    for i in range(1, len(numbers)):
-        if numbers[i] == end + 1:
-            end = numbers[i]
-        else:
-            merged_segments.append((start, end))
-            start = numbers[i]
-            end = numbers[i]
-
-    # Append the last segment
-    merged_segments.append((start, end))
-    
-    return merged_segments
-
-def process_segments(segments):
-    # Step 1: Delete all segments that start within the first 5 frames
-    segments = [segment for segment in segments if segment[0] > 5]
-
-    # Step 2: Delete all segments with a length of less than 8
-    segments = [segment for segment in segments if segment[1] - segment[0] + 1 >= 8]
-
-    # Step 3: Sort the remaining segments by their end frame
-    segments.sort(key=lambda x: x[1])
-
-    return segments
-
-def merge_close_segments(segments, max_gap=2):
+def merge_close_segments_start(segments, max_gap=2):
     if not segments:
         return []  # Return an empty list if there are no segments
 
@@ -739,6 +637,105 @@ def merge_close_segments(segments, max_gap=2):
     merged_segments.append(current_segment)
     
     return merged_segments
+    
+def find_end_frame(left_xdata_new_df, right_xdata_new_df, all_jerk_frames):
+    # Assume 'a' is already defined as:
+    a = abs(right_xdata_new_df[16] - left_xdata_new_df[16])
+    
+    end_frames = []
+    
+    if not end_frames:
+        thresh = a.quantile(0.1)
+        for i in range(len(a)):
+            try:
+                if 0 < a[i] < thresh:  
+                    #print (i)
+                    end_frames.append(i)
+            except:
+                continue
+    end_segments = merge_consecutive_numbers(end_frames)
+    print (end_segments)
+    end_segments = merge_close_segments_start(end_segments)
+    print (end_segments)
+    # Filter end_segments based on all_jerk_frames
+    filtered_end_segments = filter_segments_by_jerk_frames(end_segments, all_jerk_frames)
+    print ('end_segments:', end_segments, 'all_jerk_frames：', all_jerk_frames, 'filtered_end_segments：', filtered_end_segments)
+    
+    if not filtered_end_segments:
+        filtered_end_segments = end_segments[-1]
+    
+    # Check if there is only one segment
+    if isinstance(filtered_end_segments, tuple):
+        # If it's a tuple (a single segment), we can directly use it
+        longest_segment = filtered_end_segments
+        end_frame = longest_segment[0] + math.ceil((longest_segment[1] - longest_segment[0]) / 2)
+    else:
+        # Otherwise, find the longest segment from the list of segments
+        end_frame, longest_segment = find_longest_segment(filtered_end_segments)
+
+    end_frame = end_frame + 5
+
+    return end_frame, longest_segment
+
+def calculate_center_of_mass_start(left_xdata_df_normalized, right_xdata_df_normalized):
+    left_x_coordinates = left_xdata_df_normalized.iloc[:, :-1].copy()
+    num_columns = left_x_coordinates.shape[1] - 1
+    remaining_weight = 0.2
+    even_weight = remaining_weight / num_columns
+
+    weights = pd.Series(even_weight, index=left_x_coordinates.columns)
+    weights[16] = 0.8
+
+    left_xdata_df_normalized['Center_of_Mass_X'] = (left_x_coordinates * weights).sum(axis=1)
+
+    right_x_coordinates = right_xdata_df_normalized.iloc[:, :-1].copy()
+    num_columns = right_x_coordinates.shape[1] - 1
+    even_weight = remaining_weight / num_columns
+
+    weights = pd.Series(even_weight, index=right_x_coordinates.columns)
+    weights[16] = 0.8
+
+    right_xdata_df_normalized['Center_of_Mass_X'] = (right_x_coordinates * weights).sum(axis=1)
+
+    return left_xdata_df_normalized, right_xdata_df_normalized
+
+def merge_consecutive_numbers_start(numbers):
+    if not numbers:
+        return []
+
+    # Sort the list first to ensure consecutive order
+    numbers = sorted(numbers)
+    
+    merged_segments = []
+    start = numbers[0]
+    end = numbers[0]
+
+    for i in range(1, len(numbers)):
+        if numbers[i] == end + 1:
+            end = numbers[i]
+        else:
+            merged_segments.append((start, end))
+            start = numbers[i]
+            end = numbers[i]
+
+    # Append the last segment
+    merged_segments.append((start, end))
+    
+    return merged_segments
+
+def process_segments_start(segments):
+    # Step 1: Delete all segments that start within the first 5 frames
+    segments = [segment for segment in segments if segment[0] > 5]
+
+    # Step 2: Delete all segments with a length of less than 8
+    segments = [segment for segment in segments if segment[1] - segment[0] + 1 >= 8]
+
+    # Step 3: Sort the remaining segments by their end frame
+    segments.sort(key=lambda x: x[1])
+
+    return segments
+
+
 
 def find_overlapping_leftright_segments(segments1, segments2, min_overlap=7):
     overlapping_segments = []
@@ -808,21 +805,23 @@ def find_latest_end(left_xdata_df_normalized, right_xdata_df_normalized, video_a
         if d[0][i] < left_threshold:
             left.append(i)
     
-    left_segments = merge_consecutive_numbers(left)
-    right_segments = merge_consecutive_numbers(right)
+    left_segments = merge_consecutive_numbers_start(left)
+    right_segments = merge_consecutive_numbers_start(right)
     
-    left_merged_segments = merge_close_segments(left_segments)
-    right_merged_segments = merge_close_segments(right_segments)
+    left_merged_segments = merge_close_segments_start(left_segments)
+    right_merged_segments = merge_close_segments_start(right_segments)
 
     merged_segments = find_overlapping_leftright_segments(left_merged_segments, right_merged_segments)
 
     # Filter out segments with length less than 7
     filtered_segments = [segment for segment in segments if len(segment) >= 7]
-    
-    
+    print ('segments', segments)
+    print ('filtered_segment', filtered_segments, 'merged_segments', merged_segments)
 
     # Use the function to find overlapping segments
     overlapping_segments, involved_segments = find_overlapping_segments(merged_segments, filtered_segments)
+
+    print ('involved_segments:', involved_segments)
     
     if involved_segments:
         latest_end = max(seg[1] for seg in involved_segments)
@@ -837,42 +836,143 @@ def find_latest_end(left_xdata_df_normalized, right_xdata_df_normalized, video_a
 def cut_video(left_xdata_df, left_ydata_df, right_xdata_df, right_ydata_df, video_angle_df):
     segments = calculate_angle_differences(left_xdata_df, left_ydata_df, right_xdata_df, right_ydata_df, video_angle_df)
     all_jerk_frames = calculate_jerk_based_frames(left_xdata_df, right_xdata_df)
-    end_frame = find_end_frame(left_xdata_df, right_xdata_df, all_jerk_frames)
+    end_frame, longest_segment = find_end_frame(left_xdata_df, right_xdata_df, all_jerk_frames)
     latest_end = find_latest_end(left_xdata_df, right_xdata_df, video_angle_df, segments, end_frame)
 
-    print(f"Latest End: {latest_end}, End Frame: {end_frame}")
+    start = left_xdata_df.iloc[latest_end]['Frame']
+    try:
+        end = left_xdata_df.iloc[end_frame]['Frame']
+    except:
+        end = left_xdata_df.iloc[end_frame-5]['Frame']
+
+    print(f"Start Frame: {start}, End Frame: {end}")
     
-    left_xdata_new_df = left_xdata_df[(left_xdata_df['Frame'] >= latest_end) & (left_xdata_df['Frame'] <= end_frame)]
-    left_ydata_new_df = left_ydata_df[(left_ydata_df['Frame'] >= latest_end) & (left_ydata_df['Frame'] <= end_frame)]
-    right_xdata_new_df = right_xdata_df[(right_xdata_df['Frame'] >= latest_end) & (right_xdata_df['Frame'] <= end_frame)]
-    right_ydata_new_df = right_ydata_df[(right_ydata_df['Frame'] >= latest_end) & (right_ydata_df['Frame'] <= end_frame)]
+    left_xdata_new_df = left_xdata_df[(left_xdata_df['Frame'] >= start) & (left_xdata_df['Frame'] <= end)]
+    left_ydata_new_df = left_ydata_df[(left_ydata_df['Frame'] >= start) & (left_ydata_df['Frame'] <= end)]
+    right_xdata_new_df = right_xdata_df[(right_xdata_df['Frame'] >= start) & (right_xdata_df['Frame'] <= end)]
+    right_ydata_new_df = right_ydata_df[(right_ydata_df['Frame'] >= start) & (right_ydata_df['Frame'] <= end)]
 
     print(f"Left X DataFrame Indices After: {left_xdata_new_df['Frame'].tolist()}")
 
-    return left_xdata_new_df, left_ydata_new_df, right_xdata_new_df, right_ydata_new_df, latest_end, end_frame
+    return left_xdata_new_df, left_ydata_new_df, right_xdata_new_df, right_ydata_new_df, latest_end, end_frame, longest_segment
 
+def calculate_center_of_mass(left_xdata_df_normalized, right_xdata_df_normalized):
+    left_x_coordinates = left_xdata_df_normalized.iloc[:, :-1].copy()
+    num_columns = left_x_coordinates.shape[1] - 1
+    remaining_weight = 0
+    even_weight = remaining_weight / num_columns
+
+    weights = pd.Series(even_weight, index=left_x_coordinates.columns)
+    weights[16] = 1
+
+    left_xdata_df_normalized['Center_of_Mass_X'] = (left_x_coordinates * weights).sum(axis=1)
+
+    right_x_coordinates = right_xdata_df_normalized.iloc[:, :-1].copy()
+    num_columns = right_x_coordinates.shape[1] - 1
+    even_weight = remaining_weight / num_columns
+
+    weights = pd.Series(even_weight, index=right_x_coordinates.columns)
+    weights[16] = 1
+
+    right_xdata_df_normalized['Center_of_Mass_X'] = (right_x_coordinates * weights).sum(axis=1)
+
+    left_xdata_df_normalized['hand'] = left_xdata_df_normalized[10] - left_xdata_df_normalized[12]
+    right_xdata_df_normalized['hand'] = right_xdata_df_normalized[10] - right_xdata_df_normalized[12]
+
+    return left_xdata_df_normalized, right_xdata_df_normalized
+
+def merge_consecutive_numbers(numbers):
+    if not numbers:
+        return []
+
+    # Sort the list first to ensure consecutive order
+    numbers = sorted(numbers)
+    
+    merged_segments = []
+    start = numbers[0]
+    end = numbers[0]
+
+    for i in range(1, len(numbers)):
+        if numbers[i] == end + 1:
+            end = numbers[i]
+        else:
+            merged_segments.append((start, end))
+            start = numbers[i]
+            end = numbers[i]
+
+    # Append the last segment
+    merged_segments.append((start, end))
+    
+    return merged_segments
+
+def process_segments(segments, longest_segment, start):
+    # Step 1: Delete all segments that start within the first 5 frames
+    segments = [segment for segment in segments if (segment[0]- start) > 5]
+
+    # Step 2: Delete all segments with a length of less than 8
+    segments = [segment for segment in segments if (segment[1] - segment[0] + 1) >= 10]
+
+    segments = [segment for segment in segments if (longest_segment[0] - segment[0]) > 4]
+
+    # Step 3: Sort the remaining segments by their end frame
+    segments.sort(key=lambda x: x[1])
+
+    return segments
+
+def merge_close_segments(segments, max_gap=2):
+    if not segments:
+        return []  # Return an empty list if there are no segments
+
+    # Sort segments by their starting point
+    segments.sort(key=lambda seg: seg[0])
+
+    merged_segments = []
+    current_segment = segments[0]
+
+    for seg in segments[1:]:
+        if seg[0] - current_segment[1] <= max_gap:
+            if (seg[1]-seg[0]) >= 2 or (current_segment[1]-current_segment[0]) >= 2:
+                # Merge the segments by extending the end of the current segment
+                current_segment = (current_segment[0], max(current_segment[1], seg[1]))
+        else:
+            # If segments are not close enough, save the current segment and start a new one
+            merged_segments.append(current_segment)
+            current_segment = seg
+
+    # Append the last segment
+    merged_segments.append(current_segment)
+    
+    return merged_segments
+    
 import pickle
 def load_all_data_from_single_pickle(input_path):
     with open(input_path, 'rb') as f:
         return pickle.load(f)
 
+def get_frame_intervals(segments, frame_data):
+    frame_intervals = []
+    for seg in segments:
+        start_frame = frame_data.iloc[seg[0]]
+        end_frame = frame_data.iloc[seg[1]]
+        frame_intervals.append((start_frame, end_frame))
+    return frame_intervals
 
-def find_pause(left_xdata_df_normalized, right_xdata_df_normalized, video_angle_df):
-    left_xdata_df_normalized, right_xdata_df_normalized = calculate_center_of_mass(left_xdata_df_normalized, right_xdata_df_normalized)
-    a = np.diff(-right_xdata_df_normalized['Center_of_Mass_X'])
+def find_pause(left_xdata_df_normalized, right_xdata_df_normalized, video_angle_df, longest_segment):
+    left_xdata_df_center_of_mass, right_xdata_df_center_of_mass = calculate_center_of_mass(left_xdata_df_normalized, right_xdata_df_normalized)
+    a = np.diff(-right_xdata_df_center_of_mass['Center_of_Mass_X'])
     c = pd.DataFrame(a)
     
-    b = np.diff(left_xdata_df_normalized['Center_of_Mass_X'])
+    b = np.diff(left_xdata_df_center_of_mass['Center_of_Mass_X'])
     d = pd.DataFrame(b)
     
-    left = []
-    right = []
+    left = set()
+    right = set()
 
     video_angle = video_angle_df.loc[0, 'Video Angle']
     
     if video_angle == 'middle':
-        right_threshold = 0.08
-        left_threshold = 0.08
+        right_threshold = 0.07
+        left_threshold = 0.07
     elif video_angle == 'right':
         right_threshold = 0.12
         left_threshold = 0.04
@@ -882,20 +982,58 @@ def find_pause(left_xdata_df_normalized, right_xdata_df_normalized, video_angle_
     
     for i in range (len(c[0])):
         if c[0][i] < right_threshold:
-            right.append(i)
+            right.add(i)
             
     for i in range (len(d[0])):
         if d[0][i] < left_threshold:
-            left.append(i)
+            left.add(i)
+    if video_angle == 'middle' and len(left_xdata_df_normalized) < 65:
+        left_hand = list(abs(left_xdata_df_normalized[12] - left_xdata_df_normalized[10]))
+        right_hand = list(abs(right_xdata_df_normalized[12] - right_xdata_df_normalized[10]))
+        left_hold = []
+        right_hold = []
+        for i in range (len(left_xdata_df_normalized[12])):
+            if left_hand[i] < 0.3:
+                left_hold.append(i)
+            if right_hand[i] < 0.3:
+                right_hold.append(i)
+
+        left_hold_segments = merge_consecutive_numbers(left_hold)
+        right_hold_segments = merge_consecutive_numbers(right_hold)
+
+        print(right_hold_segments)
     
+        left_hold_segments = [segment for segment in left_hold_segments if (segment[1] - segment[0]) > 5]
+        right_hold_segments = [segment for segment in right_hold_segments if (segment[1] - segment[0]) > 5]
+    
+        for segment in left_hold_segments:
+            for i in range (segment[1] - segment[0]):
+                left.add(segment[0] + i)
+    
+        for segment in right_hold_segments:
+            for i in range (segment[1] - segment[0]):
+                right.add(segment[0] + i)
+
+    left = list(left)
+    right = list(right)
     left_segments = merge_consecutive_numbers(left)
     right_segments = merge_consecutive_numbers(right)
+
+    left_segments = [segment for segment in left_segments if (segment[1] - segment[0]) > 1]
+    right_segments = [segment for segment in right_segments if (segment[1] - segment[0]) > 1]
+
+    left_segments = get_frame_intervals(left_segments, left_xdata_df_normalized['Frame'])
+    right_segments = get_frame_intervals(right_segments, right_xdata_df_normalized['Frame'])
+
+    print ('left_segment', left_segments, 'right_segment', right_segments)
     
     left_merged_segments = merge_close_segments(left_segments)
     right_merged_segments = merge_close_segments(right_segments)
 
-    left_processed_segments = process_segments(left_merged_segments)
-    right_processed_segments = process_segments(right_merged_segments)
+    print ('left_merge_segment', left_merged_segments, 'right_merge_segment', right_merged_segments)
+
+    left_processed_segments = process_segments(left_merged_segments, longest_segment, right_xdata_df_normalized.iloc[0]['Frame'])
+    right_processed_segments = process_segments(right_merged_segments, longest_segment, right_xdata_df_normalized.iloc[0]['Frame'])
     
     left_last = 0
     left_last_first = 0
@@ -915,32 +1053,41 @@ def find_pause(left_xdata_df_normalized, right_xdata_df_normalized, video_angle_
     return left_last, left_last_first, right_last, right_last_first, left_processed_segments, right_processed_segments
 
 def calculate_velocity_acceleration(data):
-    # Fit a second-degree polynomial to the data
-    x = np.arange(len(data))
-    poly = Polynomial.fit(x, data, 2)
+    """
+    Calculate velocity and acceleration based on the differences between each element in the data.
+    
+    Parameters:
+    - data: A list or numpy array of numerical values.
 
-    # Calculate velocity as the first derivative of the polynomial
-    velocity = poly.deriv(1)(x)
+    Returns:
+    - velocity: The first derivative of the data (differences between consecutive elements).
+    - acceleration: The second derivative of the data (differences between consecutive velocities).
+    """
+    # Calculate velocity as the difference between consecutive elements (first derivative)
+    velocity = np.diff(data)
+    
+    # Calculate acceleration as the difference between consecutive velocities (second derivative)
+    acceleration = np.diff(velocity)
+    
+    return velocity.mean(), acceleration.mean()
 
-    # Calculate acceleration as the second derivative of the polynomial
-    acceleration = poly.deriv(2)(x)
-
-    return velocity, acceleration
-
-def calculate_composite_scores(xdata, keypoints=[8, 10, 16], velocity_weight=0.8, acceleration_weight=0.2):
+def calculate_composite_scores(xdata, keypoints=['hand', 16], velocity_weight=1, acceleration_weight=0):
     composite_scores = []
 
     for k in keypoints:
         velocity, acceleration = calculate_velocity_acceleration(xdata[k])
+        #print (velocity.mean())
 
         # Calculate the composite score for each frame
         composite_score = (velocity_weight * np.abs(velocity)) + (acceleration_weight * np.abs(acceleration))
-        composite_scores.append(composite_score)
+        #print (composite_score.mean())
+        composite_scores.append(velocity.mean())
+        print (composite_scores)
 
     # Average the scores across keypoints if there are multiple keypoints
-    composite_scores = np.mean(composite_scores, axis=0)
+    #composite_scores = (composite_scores[0]*6*0.7 + composite_scores[1]*0.3)/2
 
-    return composite_scores
+    return composite_scores[0], composite_scores[1]
 
 def determine_frame_winner(left_scores, right_scores):
     # Count how many frames each fencer wins
@@ -956,18 +1103,31 @@ def determine_frame_winner(left_scores, right_scores):
         return 'draw', left_wins, right_wins
 
 def find_rule_winner(left_xdata_new_df, right_xdata_new_df, left_last, left_last_first, right_last, right_last_first, left_processed_segments, right_processed_segments):
-    left_composite_scores = calculate_composite_scores(left_xdata_new_df)
-    right_composite_scores = calculate_composite_scores(-right_xdata_new_df)  # Invert direction for the right fencer
+    left_hand_composite_scores, left_foot_composite_scores = calculate_composite_scores(left_xdata_new_df)
+    
+    right_hand_composite_scores, right_foot_composite_scores = calculate_composite_scores(-right_xdata_new_df)  # Invert direction for the right fencer
 
-    mean_left_composite_scores = np.mean(left_composite_scores)
-    mean_right_composite_scores = np.mean(right_composite_scores)
+    print (left_foot_composite_scores, left_hand_composite_scores, right_foot_composite_scores, right_hand_composite_scores)
 
-    if mean_left_composite_scores > mean_right_composite_scores:
-        speed_winner = 'left'
-    else:
+    hand_percent = right_hand_composite_scores/left_hand_composite_scores
+    foot_percent = right_foot_composite_scores/left_foot_composite_scores
+
+    if ((hand_percent*0.7 + foot_percent*0.3) > 1):
         speed_winner = 'right'
+    else:
+        speed_winner = 'left'
+
+    #mean_left_composite_scores = np.mean(left_composite_scores)
+    #mean_right_composite_scores = np.mean(right_composite_scores)
+    #print ('left_composite_scores', mean_left_composite_scores)
+    #print ('right_composite_scores', mean_right_composite_scores)
+
+    #if mean_left_composite_scores > mean_right_composite_scores:
+        #speed_winner = 'left'
+    #else:
+        #speed_winner = 'right'
     # Determine the frame-by-frame winner
-    frame_winner, left_wins, right_wins = determine_frame_winner(left_composite_scores, right_composite_scores)
+    #frame_winner, left_wins, right_wins = determine_frame_winner(left_composite_scores, right_composite_scores)
     
     if (not left_processed_segments) and (not right_processed_segments):
         rule_winner = speed_winner
@@ -982,7 +1142,20 @@ def find_rule_winner(left_xdata_new_df, right_xdata_new_df, left_last, left_last
             else:
                 rule_winner = 'left'
 
-    return rule_winner
+    percent = min(left_hand_composite_scores, right_hand_composite_scores)/max(left_hand_composite_scores, right_hand_composite_scores)
+    if percent > 0.5:
+        winning_percent = percent
+    else:
+        winning_percent = 1 - percent
+
+    
+    if rule_winner == 'left':
+        left_percentage = winning_percent
+        right_percentage = 1 - winning_percent
+    else:
+        right_percentage = winning_percent
+        left_percentage = 1 - winning_percent
+    return rule_winner, left_percentage, right_percentage
 
 def normalize_by_first_value(df):
     normalized_df = df.copy()
@@ -1025,7 +1198,7 @@ def compare_to_normalized_data(new_left_xdata_df, new_left_ydata_df, new_right_x
             continue
     
     results.sort(key=lambda x: x[1])
-    
+    print (results[:11])
     return results[:11]
 
 
@@ -1051,20 +1224,18 @@ def find_ai_winner(new_left_xdata_df, new_left_ydata_df, new_right_xdata_df, new
 
     return winner_ai, left_percentage, right_percentage
 
-from django.conf import settings
+#from django.conf import settings
 import os
 
-def find_winner(left_xdata_new_df, left_ydata_new_df, right_xdata_new_df, right_ydata_new_df, video_angle_df):
+def find_winner(left_xdata_new_df, left_ydata_new_df, right_xdata_new_df, right_ydata_new_df, video_angle_df, longest_segment):
     print ('loading pickle')
     output_pickle_file = os.path.join(settings.BASE_DIR, 'processing', 'mega_data_all.pkl')
     print ('finish loading')
     normalized_files_data = load_all_data_from_single_pickle(output_pickle_file)
 
-    left_last, left_last_first, right_last, right_last_first, left_processed_segments, right_processed_segments = find_pause(left_xdata_new_df, right_xdata_new_df, video_angle_df)
-    rule_winner = find_rule_winner(left_xdata_new_df, right_xdata_new_df, left_last, left_last_first, right_last, right_last_first, left_processed_segments, right_processed_segments)
-    print ('running AI')
-    winner_ai, left_percentage, right_percentage = find_ai_winner(left_xdata_new_df, left_ydata_new_df, right_xdata_new_df, right_ydata_new_df, normalized_files_data)
-    print ('finish running')
+    left_last, left_last_first, right_last, right_last_first, left_processed_segments, right_processed_segments = find_pause(left_xdata_new_df, right_xdata_new_df, video_angle_df, longest_segment)
+    rule_winner, left_percentage, right_percentage = find_rule_winner(left_xdata_new_df, right_xdata_new_df, left_last, left_last_first, right_last, right_last_first, left_processed_segments, right_processed_segments)
+
     segment_length = []
     for i in range (len(left_processed_segments)):
         segment_length.append(left_processed_segments[i][1]-left_processed_segments[i][0])
@@ -1076,17 +1247,31 @@ def find_winner(left_xdata_new_df, left_ydata_new_df, right_xdata_new_df, right_
         max_length = max(segment_length)
     else:
         max_length = 0
-                         
+    print ('segment_length', segment_length)
+    print ('max_length', max_length)
+    
+    if (len(left_xdata_new_df[16])) > 100:
+        print ('running AI')
+        winner_ai, left_percentage, right_percentage = find_ai_winner(left_xdata_new_df, left_ydata_new_df, right_xdata_new_df, right_ydata_new_df, normalized_files_data)
+        print ('finish running')
+    elif (len(left_xdata_new_df[16])) <= 100 and max_length>40:
+        print ('running AI')
+        winner_ai, left_percentage, right_percentage = find_ai_winner(left_xdata_new_df, left_ydata_new_df, right_xdata_new_df, right_ydata_new_df, normalized_files_data)
+        print ('finish running')
+    
+    
     
     if (len(left_xdata_new_df[16])) > 100:
         print (1)
         final_winner = winner_ai
-    elif (len(left_xdata_new_df[16])) <= 100 and max_length>20:
+    elif (len(left_xdata_new_df[16])) <= 100 and max_length>40:
         print (2)
         final_winner = winner_ai
     else:
         print (3)
         final_winner = rule_winner
+
+    print ('left_percentage', left_percentage, 'right_percentage',right_percentage)
 
     return final_winner, left_percentage, right_percentage, left_processed_segments, right_processed_segments
 
@@ -1118,14 +1303,14 @@ def cut_video_segments(
     source_video_path, frame_intervals, output_prefix, video_id,
     left_xdata_df, left_ydata_df, right_xdata_df, right_ydata_df, c
 ):
+    # Create a directory for the output segments inside the unique folder
+    output_dir = os.path.join(settings.MEDIA_ROOT, f'upload_{video_id}', output_prefix)
+    os.makedirs(output_dir, exist_ok=True)
+
     # Load the video using moviepy
     video = VideoFileClip(source_video_path)
     fps = video.fps
     width, height = video.size
-
-    # Create a directory for the output segments inside MEDIA_ROOT
-    output_dir = os.path.join(settings.MEDIA_ROOT, output_prefix)
-    os.makedirs(output_dir, exist_ok=True)
 
     segment_urls = []
 
@@ -1146,8 +1331,8 @@ def cut_video_segments(
             frameNr = int(t * fps) + start_frame
             left_x_frame_row = left_xdata_df[left_xdata_df['Frame'] == frameNr]
             right_x_frame_row = right_xdata_df[right_xdata_df['Frame'] == frameNr]
-            left_y_frame_row = left_ydata_df[left_xdata_df['Frame'] == frameNr]
-            right_y_frame_row = right_ydata_df[right_xdata_df['Frame'] == frameNr]
+            left_y_frame_row = left_ydata_df[left_ydata_df['Frame'] == frameNr]
+            right_y_frame_row = right_ydata_df[right_ydata_df['Frame'] == frameNr]
 
             # If keypoints are available for this frame, plot them
             if not left_x_frame_row.empty and not right_x_frame_row.empty:
@@ -1176,22 +1361,11 @@ def cut_video_segments(
         segment_with_keypoints.write_videofile(segment_output_path, codec="libx264", fps=fps)
 
         # Add the segment URL to the list
-        segment_url = os.path.join(settings.MEDIA_URL, output_prefix, segment_output_filename)
+        segment_url = os.path.join(settings.MEDIA_URL, f'upload_{video_id}', output_prefix, segment_output_filename)
         segment_urls.append(segment_url)
 
     video.close()
     return segment_urls
 
 
-def calculate_velocity_acceleration(data):
-    # Fit a second-degree polynomial to the data
-    x = np.arange(len(data))
-    poly = Polynomial.fit(x, data, 2)
 
-    # Calculate velocity as the first derivative of the polynomial
-    velocity = poly.deriv(1)(x)
-
-    # Calculate acceleration as the second derivative of the polynomial
-    acceleration = poly.deriv(2)(x)
-
-    return velocity, acceleration
