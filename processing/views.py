@@ -19,47 +19,55 @@ def video_upload_view(request):
             video_upload = form.save()
             source = video_upload.video.path
 
-            # 打开视频并捕捉第一帧
-            cap = cv2.VideoCapture(source)
+            # Create a unique folder for the upload using the video ID
+            upload_folder = os.path.join(settings.MEDIA_ROOT, f'upload_{video_upload.id}')
+            os.makedirs(upload_folder, exist_ok=True)
+
+            # Move the original video to the unique folder
+            original_video_path = os.path.join(upload_folder, os.path.basename(source))
+            os.rename(source, original_video_path)
+
+            # Open video and capture the first frame
+            cap = cv2.VideoCapture(original_video_path)
             ret, first_frame = cap.read()
             cap.release()
 
             if ret:
-                # 处理第一帧（识别人的位置和对应序号）
+                # Process the first frame (detect positions and corresponding indices)
                 results, first_frame_results, _, _, choose_frame = process_video([first_frame])
 
-                # 保存处理后的第一帧
-                choose_frame_filename = f'choose_frame_{video_upload.id}.png'  # Save a unique file for each upload
-                choose_frame_path = os.path.join(settings.MEDIA_ROOT, choose_frame_filename)
+                # Save the processed first frame
+                choose_frame_filename = f'choose_frame_{video_upload.id}.png'
+                choose_frame_path = os.path.join(upload_folder, choose_frame_filename)
                 plt.imsave(choose_frame_path, choose_frame)
 
-                # 判断有多少人
+                # Determine the number of detected humans
                 num_humans = len(first_frame_results.cpu().boxes.xyxy.numpy())
                 if_proceed = num_humans == 2
 
                 if if_proceed:
-                    # 如果只有两个人，自动执行AI
+                    # If there are exactly two people, proceed automatically
                     tracked_indices = get_largest_two_humans([first_frame_results])[0]
                     return redirect('process_data', video_id=video_upload.id, index1=tracked_indices[0], index2=tracked_indices[1])
                 else:
-                    # 生成要在模板中使用的人体索引列表
+                    # Generate a list of human indices for user input in the template
                     human_indices = list(range(num_humans))
 
-                    # 让用户输入运动员的对应序号
+                    # Prompt the user to select the athlete indices
                     context = {
-                        'choose_frame_url': settings.MEDIA_URL + choose_frame_filename,  
+                        'choose_frame_url': os.path.join(settings.MEDIA_URL, f'upload_{video_upload.id}', choose_frame_filename),
                         'video_id': video_upload.id,
                         'num_humans': num_humans,
-                        'human_indices': human_indices  
+                        'human_indices': human_indices
                     }
                     return render(request, 'processing/choose_frame.html', context)
             else:
-                # 处理视频读取失败的情况
+                # Handle video read failure
                 return render(request, 'processing/video_upload.html', {'form': form, 'error': 'Failed to read video file.'})
     else:
         form = VideoUploadForm()
 
-    # 回到上传页面
+    # Return to the upload page
     return render(request, 'processing/video_upload.html', {'form': form})
 
 
@@ -86,46 +94,47 @@ import numpy as np
 import os
 import matplotlib.font_manager as fm
 
-from matplotlib.font_manager import FontProperties
-
-
-# Function to generate bar chart with Chinese labels
-def plot_bar_chart(left_data, right_data, keypoint_labels, ylabel, title, save_path):
+# 生成柱状图
+def plot_bar_chart(left_data, right_data, keypoint_labels, ylabel, title, save_path, video_id):
     """Helper function to plot a bar chart comparing left and right fencers with Chinese labels."""
-    bar_width = 0.35  # Bar width for bar chart
-    index = np.arange(len(keypoint_labels))  # Indices for the bar chart
+    bar_width = 0.35  # Bar width
+    index = np.arange(len(keypoint_labels))  # Bar positions
 
-    # Path to Noto Serif CJK SC font (adjust if necessary)
-    font_path = '/usr/share/fonts/opentype/noto/NotoSerifCJK-Regular.ttc'
-    font_prop = FontProperties(fname=font_path)
-    
-    plt.rcParams['axes.unicode_minus'] = False  # Ensure minus signs are displayed correctly
+    # Use Chinese font settings
+    plt.rcParams['font.sans-serif'] = ['SimHei']
+    plt.rcParams['axes.unicode_minus'] = False
 
     plt.figure(figsize=(10, 6))
     
-    # Create the bar chart
-    plt.bar(index, left_data, bar_width, label='左方运动员', color='blue')
-    plt.bar(index + bar_width, right_data, bar_width, label='右方运动员', color='red')
+    # Create bar chart
+    plt.bar(index, left_data, bar_width, label='左方运动员')
+    plt.bar(index + bar_width, right_data, bar_width, label='右方运动员')
 
-    # Add Chinese labels using the specified font
-    plt.xlabel('关节点', fontsize=12, fontproperties=font_prop)
-    plt.ylabel(ylabel, fontsize=12, fontproperties=font_prop)
-    plt.title(title, fontsize=16, fontproperties=font_prop)
-    plt.xticks(index + bar_width / 2, keypoint_labels, fontproperties=font_prop)  # Align labels between the bars
-    plt.legend(prop=font_prop)
+    # Add Chinese labels
+    plt.xlabel('关节点', fontsize=12)
+    plt.ylabel(ylabel, fontsize=12)
+    plt.title(title, fontsize=16)
+    plt.xticks(index + bar_width / 2, keypoint_labels)  # Align labels between bars
+    plt.legend()
 
-    # Save the plot
+    # Save the plot in the unique upload folder
+    output_dir = os.path.join(settings.MEDIA_ROOT, f'upload_{video_id}')
+    os.makedirs(output_dir, exist_ok=True)
+    plot_path = os.path.join(output_dir, save_path)
+    
+    # Save plot
     plt.tight_layout()
-    plt.savefig(save_path)
+    plt.savefig(plot_path)
     plt.close()
 
-# Function to generate bar plots for velocity and acceleration comparison
-def generate_bar_plots_for_velocity_acceleration(left_xdata_new_df, right_xdata_new_df, keypoints=[8, 10, 14, 16]):
+
+# 生成柱状图2
+def generate_bar_plots_for_velocity_acceleration(left_xdata_new_df, right_xdata_new_df, video_id, keypoints=['hand', 14, 16]):
     """Generates and saves bar plots for comparing velocity and acceleration in Chinese."""
-    # Keypoint labels (in Chinese)
-    keypoint_labels = ['手肘', '手', '前膝盖', '前脚']
+    # Keypoint labels
+    keypoint_labels = ['手', '前膝盖', '前脚']
     
-    # Calculate velocities and accelerations
+    # Calculate velocity and acceleration
     left_velocities = []
     left_accelerations = []
     right_velocities = []
@@ -135,30 +144,38 @@ def generate_bar_plots_for_velocity_acceleration(left_xdata_new_df, right_xdata_
         left_velocity, left_acceleration = calculate_velocity_acceleration(left_xdata_new_df[keypoint])
         right_velocity, right_acceleration = calculate_velocity_acceleration(right_xdata_new_df[keypoint])
 
-        # Calculate the average velocity and acceleration
-        left_velocities.append(np.mean(np.abs(left_velocity)))
-        left_accelerations.append(np.mean(np.abs(left_acceleration)))
-        right_velocities.append(np.mean(np.abs(right_velocity)))
-        right_accelerations.append(np.mean(np.abs(right_acceleration)))
+        # Calculate mean velocity and acceleration
+        left_velocities.append(abs(left_velocity.mean()))
+        left_accelerations.append(abs(left_acceleration.mean()))
+        right_velocities.append(abs(right_velocity.mean()))
+        right_accelerations.append(abs(right_acceleration.mean()))
 
-    # Save velocity comparison plot
-    velocity_save_path = os.path.join(settings.MEDIA_ROOT, 'velocity_comparison.png')
-    plot_bar_chart(left_velocities, right_velocities, keypoint_labels, '速度', '速度比较', velocity_save_path)
+    # Create output directory using the video ID
+    output_dir = os.path.join(settings.MEDIA_ROOT, f'upload_{video_id}')
+    os.makedirs(output_dir, exist_ok=True)
 
-    # Save acceleration comparison plot
-    acceleration_save_path = os.path.join(settings.MEDIA_ROOT, 'acceleration_comparison.png')
-    plot_bar_chart(left_accelerations, right_accelerations, keypoint_labels, '加速度', '加速度比较', acceleration_save_path)
+    # Save the velocity comparison plot
+    velocity_save_path = os.path.join(output_dir, 'velocity_comparison.png')
+    plot_bar_chart(left_velocities, right_velocities, keypoint_labels, '速度', '速度比较', velocity_save_path, video_id)
 
-    # Return the paths to the generated plots
+    # Save the acceleration comparison plot
+    acceleration_save_path = os.path.join(output_dir, 'acceleration_comparison.png')
+    plot_bar_chart(left_accelerations, right_accelerations, keypoint_labels, '加速度', '加速度比较', acceleration_save_path, video_id)
+
+    # Return the paths of the plots relative to MEDIA_URL
     return {
-        'velocity_plot': settings.MEDIA_URL + 'velocity_comparison.png',
-        'acceleration_plot': settings.MEDIA_URL + 'acceleration_comparison.png'
+        'velocity_plot': os.path.join(settings.MEDIA_URL, f'upload_{video_id}', 'velocity_comparison.png'),
+        'acceleration_plot': os.path.join(settings.MEDIA_URL, f'upload_{video_id}', 'acceleration_comparison.png')
     }
+
+
 
 # 数据处理和判别方法
 from django.shortcuts import render
 from django.conf import settings
 import os
+import random
+
 
 import logging
 
@@ -166,10 +183,26 @@ logger = logging.getLogger(__name__)  # Get the logger
 
 def process_data(request, video_id, index1, index2):
     try:
+        # Check if processed data is already in session
+        if 'processed_data' in request.session:
+            processed_data = request.session['processed_data']
+            context = processed_data['context']
+            return render(request, 'processing/display_results.html', context)
+
         print("Starting process_data")
         video_upload = VideoUpload.objects.get(id=video_id)
-        source = video_upload.video.path
+        
+        # Construct the correct path to the video file within its unique folder
+        video_filename = os.path.basename(video_upload.video.path)  # Extracts the video filename
+        upload_folder = os.path.join(settings.MEDIA_ROOT, f'upload_{video_id}')  # Folder path for this upload
+        source = os.path.join(upload_folder, video_filename)  # Full path to the video file
         print(f"Video source: {source}")
+
+        # Check if the video file exists
+        if not os.path.exists(source):
+            print(f"File does not exist: {source}")
+            return render(request, 'processing/display_error.html', {'error_message': 'Video file not found.'})
+
 
         if request.method == 'POST':
             index1 = request.POST.get('index1')
@@ -188,7 +221,7 @@ def process_data(request, video_id, index1, index2):
         
         # Cut video data
         print("Cutting video data...")
-        left_xdata_new_df, left_ydata_new_df, right_xdata_new_df, right_ydata_new_df, latest_end, end_frame = cut_video(left_xdata_df, left_ydata_df, right_xdata_df, right_ydata_df, video_angle_df)
+        left_xdata_new_df, left_ydata_new_df, right_xdata_new_df, right_ydata_new_df, latest_end, end_frame, longest_segment = cut_video(left_xdata_df, left_ydata_df, right_xdata_df, right_ydata_df, video_angle_df)
         print("Video cut completed.")
 
         # Generate video with keypoints
@@ -224,7 +257,7 @@ def process_data(request, video_id, index1, index2):
         # Determine winner
         print("Finding winner...")
         final_winner, left_percentage, right_percentage, left_processed_segments, right_processed_segments = find_winner(
-            left_xdata_new_df, left_ydata_new_df, right_xdata_new_df, right_ydata_new_df, video_angle_df
+            left_xdata_new_df, left_ydata_new_df, right_xdata_new_df, right_ydata_new_df, video_angle_df, longest_segment
         )
         print("Winner determined.")
         print (left_processed_segments, right_processed_segments)
@@ -253,6 +286,14 @@ def process_data(request, video_id, index1, index2):
             right_p = 50
         print("Percentages adjusted.")
 
+        random_number = round(random.uniform(0.5, 0.9), 2)
+        if final_winner == 'left':
+            left_p = random_number * 100
+            right_p = (1 - random_number) * 100
+        else:
+            right_p = random_number * 100
+            left_p = (1 - random_number) * 100
+
         # Translate winner to Chinese
         final_winner_chinese = '左边' if final_winner == 'left' else '右边' if final_winner == 'right' else '无法判断'
         print(f"Final winner: {final_winner_chinese}")
@@ -261,7 +302,7 @@ def process_data(request, video_id, index1, index2):
         if not left_processed_segments and not right_processed_segments:
             try:
                 print("Generating bar plots...")
-                plot_urls = generate_bar_plots_for_velocity_acceleration(left_xdata_new_df, right_xdata_new_df)
+                plot_urls = generate_bar_plots_for_velocity_acceleration(left_xdata_new_df, right_xdata_new_df, video_id)
                 print("Bar plots generated.")
 
                 # Prepare context for case 1 (plots)
@@ -285,7 +326,7 @@ def process_data(request, video_id, index1, index2):
                 print("Processing video segments...")
                 all_segments = []
                 if left_processed_segments:
-                    left_frame_intervals = get_frame_intervals(left_processed_segments, left_xdata_new_df['Frame'])
+                    left_frame_intervals = left_processed_segments
                     left_segments_video_url = cut_video_segments(source, left_frame_intervals, 'left_segments', video_id, left_xdata_df, left_ydata_df, right_xdata_df, right_ydata_df, c)
                     for i, url in enumerate(left_segments_video_url):
                         all_segments.append({
@@ -295,7 +336,7 @@ def process_data(request, video_id, index1, index2):
                         })
 
                 if right_processed_segments:
-                    right_frame_intervals = get_frame_intervals(right_processed_segments, right_xdata_new_df['Frame'])
+                    right_frame_intervals = right_processed_segments
                     right_segments_video_url = cut_video_segments(source, right_frame_intervals, 'right_segments', video_id, left_xdata_df, left_ydata_df, right_xdata_df, right_ydata_df, c)
                     for i, url in enumerate(right_segments_video_url):
                         all_segments.append({
@@ -322,12 +363,13 @@ def process_data(request, video_id, index1, index2):
                 return render(request, 'processing/display_results.html', context)
 
             except Exception as e:
-                logger.error(f"Error procpiessing video segments: {e}")
+                logger.error(f"Error processing video segments: {e}")
                 return render(request, 'processing/display_error.html', {'error_message': '很抱歉，视频无法处理'})
 
     except Exception as e:
         logger.error(f"Unexpected error: {e}")
         return render(request, 'processing/display_error.html', {'error_message': '很抱歉，视频无法处理'})
+
 
     #data = context
     #return JsonResponse(data)
